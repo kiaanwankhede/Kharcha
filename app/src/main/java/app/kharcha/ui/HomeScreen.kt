@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.kharcha.core.Category
 import app.kharcha.core.InsightsEngine
+import app.kharcha.core.dailyTotals
 import app.kharcha.core.monthlyTotals
 import app.kharcha.core.Money
 import app.kharcha.core.Transaction
@@ -46,9 +49,9 @@ fun HomeScreen(
         InsightsEngine(Zone).summary(transactions, day, if (isCurrent) monthlyLimitPaise else null)
     }
     val trend = remember(transactions) { InsightsEngine(Zone).monthlyTotals(transactions, today) }
-    val recent = remember(transactions, month) {
-        transactions.filter { YearMonth.from(it.localDate()) == month }.take(5)
-    }
+    var selectedDay by rememberSaveable(month) { mutableStateOf(day) }
+    val daily = remember(transactions, month) { InsightsEngine(Zone).dailyTotals(transactions, month, today) }
+    val dayTransactions = remember(transactions, selectedDay) { transactions.filter { it.localDate() == selectedDay } }
 
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
@@ -81,6 +84,53 @@ fun HomeScreen(
                 TrendChart(trend, selected = month, onSelect = { month = it })
             }
         }
+        item {
+            Panel {
+                val activeDays = daily.size.coerceAtLeast(1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionLabel("Day by day", Modifier.weight(1f))
+                    Text(
+                        "avg ${Money.format(daily.sumOf { it.second } / activeDays)}/day",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Faint,
+                    )
+                }
+                DailyChart(daily, selected = selectedDay, onSelect = { selectedDay = it })
+                val daySpent = dayTransactions.filter { it.isSpend }.sumOf { it.amountPaise }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(selectedDay.dayHeader(today), Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                    Text(Money.format(daySpent) + " spent", fontWeight = FontWeight.Bold)
+                }
+                if (dayTransactions.isEmpty()) {
+                    Text("No payments this day.", color = Muted)
+                } else {
+                    dayTransactions.forEach { t -> TransactionRow(t) { onTransaction(t.id) } }
+                }
+            }
+        }
+        if (summary.cashWithdrawnPaise > 0 || summary.cashLoggedPaise > 0) {
+            item {
+                Panel(color = Sand) {
+                    Text("💵 Cash this month", fontWeight = FontWeight.Bold)
+                    Row {
+                        Text("Withdrawn from ATM", Modifier.weight(1f), color = Muted)
+                        Text(Money.format(summary.cashWithdrawnPaise))
+                    }
+                    Row {
+                        Text("Spends you logged", Modifier.weight(1f), color = Muted)
+                        Text(Money.format(summary.cashLoggedPaise))
+                    }
+                    val unlogged = maxOf(0L, summary.cashWithdrawnPaise - summary.cashLoggedPaise)
+                    if (unlogged > 0) {
+                        Text(
+                            "${Money.format(unlogged)} not logged yet. It still counts as spending; log cash spends with ＋ to see where it went.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Muted,
+                        )
+                    }
+                }
+            }
+        }
         summary.safeToSpendTodayPaise?.let { safe ->
             item {
                 Panel(color = Navy) {
@@ -101,7 +151,8 @@ fun HomeScreen(
             val top = summary.byCategory.first().spentPaise.toFloat()
             items(summary.byCategory, key = { it.category.id }) { total ->
                 val share = if (summary.spentPaise > 0) (total.spentPaise * 100 / summary.spentPaise) else 0L
-                Panel(Modifier.clickable { onCategory(total.category) }) {
+                val clickable = total.category != Category.UNLOGGED_CASH
+                Panel(if (clickable) Modifier.clickable { onCategory(total.category) } else Modifier) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         EmojiBadge(total.category.emoji, size = 36)
                         Column(Modifier.weight(1f)) {
@@ -114,9 +165,6 @@ fun HomeScreen(
                 }
             }
         }
-        if (recent.isNotEmpty()) {
-            item { SectionLabel("Recent") }
-            items(recent, key = { it.id }) { t -> TransactionRow(t) { onTransaction(t.id) } }
-        }
+        item { Spacer(Modifier.height(72.dp)) }
     }
 }

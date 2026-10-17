@@ -37,6 +37,7 @@ import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
 import app.kharcha.core.Money
+import app.kharcha.core.Source
 import kotlinx.coroutines.launch
 
 @Composable
@@ -108,7 +109,14 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             txn.vpa?.let { Detail("UPI ID", it) }
             txn.reference?.let { Detail("UPI reference", it) }
             txn.balancePaise?.let { Detail("Balance after", Money.format(it, showPaise = true)) }
-            Detail("From", if (txn.source.name == "SMS") "Bank SMS" else "App notification")
+            Detail(
+                "From",
+                when (txn.source) {
+                    Source.SMS -> "Bank SMS"
+                    Source.NOTIFICATION -> "App notification"
+                    Source.MANUAL -> "Added by you"
+                },
+            )
         }
 
         OutlinedTextField(
@@ -118,6 +126,15 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             label = { Text("Note or tag") },
         )
         OutlinedButton(onClick = { scope.launch { repository.setNote(txn.id, note) } }) { Text("Save note") }
+
+        if (txn.source == Source.MANUAL) {
+            OutlinedButton(onClick = {
+                scope.launch {
+                    repository.delete(txn.id)
+                    onBack()
+                }
+            }) { Text("Delete this cash entry", color = Rust) }
+        }
 
         SectionLabel("Original message")
         Text(txn.rawText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Muted)

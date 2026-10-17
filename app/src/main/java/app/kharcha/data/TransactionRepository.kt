@@ -5,6 +5,9 @@ import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Classifier
 import app.kharcha.core.Deduplicator
+import app.kharcha.core.Direction
+import app.kharcha.core.Merchants
+import app.kharcha.core.Source
 import app.kharcha.core.ParsedTransaction
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.flow.Flow
@@ -68,6 +71,25 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
             dao.update(existing.copy(category = category.id))
         }
     }
+
+    /** Records a cash payment typed in by the user. */
+    suspend fun addCash(amountPaise: Long, whatFor: String, category: Category, timestampMillis: Long): Long {
+        val name = Merchants.tidy(whatFor).ifEmpty { "Cash" }
+        return dao.insert(
+            Transaction(
+                amountPaise = amountPaise,
+                direction = Direction.DEBIT,
+                timestampMillis = timestampMillis,
+                merchant = name,
+                merchantKey = Merchants.keyOf(name),
+                category = category,
+                source = Source.MANUAL,
+                rawText = "Cash, added by hand",
+            ).toEntity(),
+        )
+    }
+
+    suspend fun delete(id: Long) = dao.delete(id)
 
     suspend fun setNote(id: Long, note: String) {
         val existing = dao.get(id) ?: return

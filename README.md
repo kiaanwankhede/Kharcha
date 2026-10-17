@@ -23,7 +23,8 @@ and keeps your data.
 | **Capture** | New bank/UPI SMS as they arrive; a one-time scan of the last 6 months; payment-app notifications. OTPs, offers, failed payments and money requests are ignored. |
 | **Duplicates** | A bank SMS and a GPay notification for the same payment become one entry (matched by UPI reference, or amount + time). Re-scanning is safe. |
 | **Categories** | Built-in list of common Indian merchants (Swiggy → Food, IRCTC → Travel…). Change a category once and tick *Always use this* — it sticks for that merchant. Credit-card bill payments are marked as own transfers, not spending. |
-| **Home** | This month’s spend, change vs last month at the same point, safe-to-spend today (if you set a monthly limit), category breakdown. |
+| **Cash** | Tap ＋ Add cash to log a cash spend in seconds. ATM withdrawals aren’t counted twice: logged cash counts, and whatever was withdrawn but not logged counts as “Cash (not logged)”. |
+| **Home** | Day-by-day chart (tap a day to see its payments), 6-month trend, this month’s spend, change vs last month at the same point, safe-to-spend today (if you set a monthly limit), category breakdown. |
 | **Insights** | Monthly summary, category spikes with the merchant behind them, unusual payments, recurring payments and subscriptions, weekend vs weekday spending. Plain rules, computed on the phone. |
 | **Backup** | Encrypted (AES-256-GCM, key from your passphrase) and written nightly, while charging on Wi-Fi, to a file you choose — pick Google Drive in the file picker. Restore on a new phone with the file + passphrase. CSV export for Excel/Sheets. |
 | **Privacy** | Only bank/UPI senders are parsed. Nothing is uploaded except your encrypted backup file. Optional fingerprint/screen-lock. |

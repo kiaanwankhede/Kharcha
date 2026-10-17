@@ -95,3 +95,46 @@ class MonthlyTotalsTest {
         assertEquals(Category.OTHER, CategoryCatalog().byId("custom_gone"))
     }
 }
+
+class CashTest {
+    private val zone = ZoneId.of("Asia/Kolkata")
+    private val today = LocalDate.of(2026, 10, 17)
+
+    private fun txn(day: Int, rupees: Long, category: Category, source: Source = Source.SMS) = Transaction(
+        amountPaise = rupees * 100, direction = Direction.DEBIT,
+        timestampMillis = LocalDate.of(2026, 10, day).atTime(12, 0).atZone(zone).toInstant().toEpochMilli(),
+        merchant = "x", merchantKey = "x", category = category, source = source, rawText = "",
+    )
+
+    @Test
+    fun `withdrawn cash counts once, whether or not spends are logged`() {
+        val engine = InsightsEngine(zone)
+        val atm = txn(2, 2000, Category.CASH)
+        val upi = txn(3, 500, Category.FOOD)
+
+        // Nothing logged: the whole withdrawal counts as unlogged cash.
+        val none = engine.summary(listOf(atm, upi), today)
+        assertEquals(250000L, none.spentPaise)
+        assertTrue(none.byCategory.any { it.category == Category.UNLOGGED_CASH && it.spentPaise == 200000L })
+
+        // ₹1,200 logged: logged spends count, the remaining ₹800 stays unlogged. Total unchanged.
+        val logged = listOf(atm, upi, txn(4, 700, Category.FOOD, Source.MANUAL), txn(5, 500, Category.TRAVEL, Source.MANUAL))
+        val some = engine.summary(logged, today)
+        assertEquals(250000L, some.spentPaise)
+        assertEquals(200000L, some.cashWithdrawnPaise)
+        assertEquals(120000L, some.cashLoggedPaise)
+        assertTrue(some.byCategory.any { it.category == Category.UNLOGGED_CASH && it.spentPaise == 80000L })
+
+        // Logged more than withdrawn (cash from elsewhere): no negative unlogged amount.
+        val over = engine.summary(listOf(atm, txn(6, 2500, Category.SHOPPING, Source.MANUAL)), today)
+        assertEquals(250000L, over.spentPaise)
+    }
+
+    @Test
+    fun `daily totals cover each day up to today`() {
+        val days = InsightsEngine(zone).dailyTotals(listOf(txn(3, 500, Category.FOOD), txn(3, 100, Category.FOOD)), java.time.YearMonth.of(2026, 10), today)
+        assertEquals(17, days.size)
+        assertEquals(60000L, days[2].second)
+        assertEquals(0L, days[0].second)
+    }
+}

@@ -31,6 +31,8 @@ data class MonthSummary(
     val changePercent: Int?,
     /** What is left of the monthly limit divided by the days left, including today; null without a limit. */
     val safeToSpendTodayPaise: Long?,
+    val cashWithdrawnPaise: Long = 0,
+    val cashLoggedPaise: Long = 0,
 )
 
 enum class InsightKind { SUMMARY, SPIKE, DROP, RECURRING, UNUSUAL, HABIT }
@@ -47,13 +49,13 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
         val month = YearMonth.from(today)
         val thisMonth = all.filter { month.contains(it) }
         val spends = thisMonth.filter { it.isSpend }
-        val spent = spends.sumOf { it.amountPaise }
+        val unlogged = unloggedCashPaise(thisMonth)
+        val spent = spends.sumOf { it.amountPaise } + unlogged
 
         val previous = month.minusMonths(1)
         val lastDay = minOf(today.dayOfMonth, previous.lengthOfMonth())
-        val previousSamePoint = all.filter {
-            it.isSpend && previous.contains(it) && date(it).dayOfMonth <= lastDay
-        }.sumOf { it.amountPaise }
+        val previousRange = all.filter { previous.contains(it) && date(it).dayOfMonth <= lastDay }
+        val previousSamePoint = previousRange.filter { it.isSpend }.sumOf { it.amountPaise } + unloggedCashPaise(previousRange)
 
         val daysLeft = month.lengthOfMonth() - today.dayOfMonth + 1
         val safeToSpend = monthlyLimitPaise?.let { maxOf(0L, (it - spent) / daysLeft) }
@@ -63,12 +65,15 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
             spentPaise = spent,
             receivedPaise = thisMonth.filter { it.direction == Direction.CREDIT && it.category == Category.INCOME }.sumOf { it.amountPaise },
             previousSamePointPaise = previousSamePoint,
-            byCategory = spends.groupBy { it.category }
-                .map { (category, items) -> CategoryTotal(category, items.sumOf { it.amountPaise }) }
-                .sortedByDescending { it.spentPaise },
+            byCategory = (
+                spends.groupBy { it.category }.map { (category, items) -> CategoryTotal(category, items.sumOf { it.amountPaise }) } +
+                    listOfNotNull(unlogged.takeIf { it > 0 }?.let { CategoryTotal(Category.UNLOGGED_CASH, it) })
+                ).sortedByDescending { it.spentPaise },
             topMerchants = merchantTotals(spends).take(5),
             changePercent = percentChange(previousSamePoint, spent),
             safeToSpendTodayPaise = safeToSpend,
+            cashWithdrawnPaise = thisMonth.filter { it.isCashWithdrawal }.sumOf { it.amountPaise },
+            cashLoggedPaise = thisMonth.filter { it.isLoggedCash }.sumOf { it.amountPaise },
         )
     }
 
@@ -251,6 +256,24 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
 /** Total spend for each of the [months] months ending with [today]'s month, oldest first. */
 fun InsightsEngine.monthlyTotals(all: List<Transaction>, today: LocalDate, months: Int = 6): List<Pair<YearMonth, Long>> {
     val end = YearMonth.from(today)
-    val totals = all.filter { it.isSpend }.groupBy { YearMonth.from(dateOf(it)) }.mapValues { (_, v) -> v.sumOf { it.amountPaise } }
+    val totals = all.groupBy { YearMonth.from(dateOf(it)) }.mapValues { (_, v) ->
+        v.filter { it.isSpend }.sumOf { it.amountPaise } + unloggedCashPaise(v)
+    }
     return (months - 1 downTo 0).map { back -> end.minusMonths(back.toLong()).let { it to (totals[it] ?: 0L) } }
+}
+
+/** Spend on each day of [month] (up to [today] for the current month), first day first. */
+fun InsightsEngine.dailyTotals(all: List<Transaction>, month: YearMonth, today: LocalDate): List<Pair<LocalDate, Long>> {
+    val lastDay = if (YearMonth.from(today) == month) today.dayOfMonth else month.lengthOfMonth()
+    val byDay = all.filter { it.isSpend && YearMonth.from(dateOf(it)) == month }
+        .groupBy { dateOf(it) }
+        .mapValues { (_, v) -> v.sumOf { it.amountPaise } }
+    return (1..lastDay).map { day -> month.atDay(day).let { it to (byDay[it] ?: 0L) } }
+}
+
+/** Cash withdrawn in [transactions] that has no logged cash spends against it. */
+fun unloggedCashPaise(transactions: List<Transaction>): Long {
+    val withdrawn = transactions.filter { it.isCashWithdrawal }.sumOf { it.amountPaise }
+    val logged = transactions.filter { it.isLoggedCash }.sumOf { it.amountPaise }
+    return maxOf(0L, withdrawn - logged)
 }

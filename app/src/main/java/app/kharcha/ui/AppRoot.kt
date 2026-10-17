@@ -6,6 +6,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Receipt
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -14,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -26,6 +28,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.kharcha.AppContainer
 import app.kharcha.core.CategoryCatalog
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppRoot(container: AppContainer, startWithOnboarding: Boolean) {
@@ -68,9 +71,22 @@ private fun MainScreen(container: AppContainer, openTransaction: (Long) -> Unit,
     val categoryFilter = categoryFilterId?.let(catalog::byId)
     val transactions by container.repository.transactions.collectAsStateWithLifecycle(initialValue = emptyList())
     val limit by container.prefs.monthlyLimit.collectAsStateWithLifecycle()
+    var addingCash by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = Paper,
+        floatingActionButton = {
+            if (tab == Tab.HOME || tab == Tab.TRANSACTIONS) {
+                ExtendedFloatingActionButton(
+                    onClick = { addingCash = true },
+                    containerColor = Navy,
+                    contentColor = Paper,
+                    text = { Text("＋ Add cash") },
+                    icon = {},
+                )
+            }
+        },
         bottomBar = {
             NavigationBar(containerColor = CardColor) {
                 Tab.entries.forEach { item ->
@@ -109,5 +125,16 @@ private fun MainScreen(container: AppContainer, openTransaction: (Long) -> Unit,
             Tab.INSIGHTS -> InsightsScreen(transactions, limit, modifier)
             Tab.SETTINGS -> SettingsScreen(container, openCategories, modifier)
         }
+    }
+
+    if (addingCash) {
+        AddCashDialog(
+            catalog = catalog,
+            onDismiss = { addingCash = false },
+            onSave = { amountPaise, whatFor, category, timestampMillis ->
+                addingCash = false
+                scope.launch { container.repository.addCash(amountPaise, whatFor, category, timestampMillis) }
+            },
+        )
     }
 }

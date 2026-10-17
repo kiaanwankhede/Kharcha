@@ -36,7 +36,14 @@ data class Category(
         val EMI = Category("EMI", "Loans & EMI", "🏦")
         val INSURANCE = Category("INSURANCE", "Insurance", "🛡️")
         val PEOPLE = Category("PEOPLE", "Sent to people", "🧑‍🤝‍🧑")
-        val CASH = Category("CASH", "Cash withdrawal", "💵")
+        /**
+         * ATM withdrawals are not spending by themselves: the cash is spent later. Cash spends the user
+         * logs count instead, and whatever was withdrawn but never logged counts as [UNLOGGED_CASH].
+         */
+        val CASH = Category("CASH", "ATM withdrawal", "🏧", countsAsSpend = false)
+
+        /** Only appears in summaries, for withdrawn cash that has no logged spends against it. */
+        val UNLOGGED_CASH = Category("UNLOGGED_CASH", "Cash (not logged)", "💵")
         val TRANSFER = Category("TRANSFER", "Own transfers", "🔄", countsAsSpend = false)
         val INCOME = Category("INCOME", "Money in", "💰", countsAsSpend = false)
         val OTHER = Category("OTHER", "Other", "🏷️")
@@ -102,4 +109,8 @@ data class Transaction(
     val note: String? = null,
 ) {
     val isSpend: Boolean get() = direction == Direction.DEBIT && category.countsAsSpend
+
+    val isCashWithdrawal: Boolean get() = direction == Direction.DEBIT && category.id == Category.CASH.id
+
+    val isLoggedCash: Boolean get() = source == Source.MANUAL && isSpend
 }
