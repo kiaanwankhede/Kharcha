@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.kharcha.AppContainer
 import app.kharcha.core.Category
+import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
 import app.kharcha.core.Money
 import kotlinx.coroutines.launch
@@ -43,6 +44,8 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
     val repository = container.repository
     val flow = remember(id) { repository.transaction(id) }
     val t by flow.collectAsStateWithLifecycle(initialValue = null)
+    val catalog by repository.catalog.collectAsStateWithLifecycle(initialValue = CategoryCatalog())
+    var creatingCategory by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
     var rememberForMerchant by rememberSaveable { mutableStateOf(true) }
@@ -71,11 +74,20 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Category", Modifier.weight(1f), color = Muted)
                 Box {
-                    TextButton(onClick = { menuOpen = true }) { Text(txn.category.label + "  ▾", fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = { menuOpen = true }) {
+                        Text("${txn.category.emoji} ${txn.category.label}  ▾", fontWeight = FontWeight.Bold)
+                    }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        Category.entries.forEach { category ->
+                        DropdownMenuItem(
+                            text = { Text("＋ New category…", fontWeight = FontWeight.Bold) },
+                            onClick = {
+                                menuOpen = false
+                                creatingCategory = true
+                            },
+                        )
+                        catalog.all.forEach { category ->
                             DropdownMenuItem(
-                                text = { Text(category.label) },
+                                text = { Text("${category.emoji}  ${category.label}") },
                                 onClick = {
                                     menuOpen = false
                                     scope.launch { repository.setCategory(txn.id, category, rememberForMerchant) }
@@ -109,6 +121,20 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
 
         SectionLabel("Original message")
         Text(txn.rawText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Muted)
+
+        if (creatingCategory) {
+            CategoryEditorDialog(
+                initial = null,
+                onDismiss = { creatingCategory = false },
+                onSave = { label, emoji, countsAsSpend ->
+                    creatingCategory = false
+                    scope.launch {
+                        val created = repository.saveCategory(Category.custom(label, emoji, countsAsSpend))
+                        repository.setCategory(txn.id, created, rememberForMerchant)
+                    }
+                },
+            )
+        }
     }
 }
 

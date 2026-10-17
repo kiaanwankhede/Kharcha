@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.kharcha.core.Category
 import app.kharcha.core.InsightsEngine
+import app.kharcha.core.monthlyTotals
 import app.kharcha.core.Money
 import app.kharcha.core.Transaction
 import java.time.LocalDate
@@ -44,6 +45,7 @@ fun HomeScreen(
     val summary = remember(transactions, month, monthlyLimitPaise) {
         InsightsEngine(Zone).summary(transactions, day, if (isCurrent) monthlyLimitPaise else null)
     }
+    val trend = remember(transactions) { InsightsEngine(Zone).monthlyTotals(transactions, today) }
     val recent = remember(transactions, month) {
         transactions.filter { YearMonth.from(it.localDate()) == month }.take(5)
     }
@@ -73,6 +75,12 @@ fun HomeScreen(
                 Text(changeText, color = if ((change ?: 0) > 0) Rust else Muted, fontWeight = FontWeight.SemiBold)
             }
         }
+        item {
+            Panel {
+                SectionLabel("Last 6 months")
+                TrendChart(trend, selected = month, onSelect = { month = it })
+            }
+        }
         summary.safeToSpendTodayPaise?.let { safe ->
             item {
                 Panel(color = Navy) {
@@ -91,11 +99,16 @@ fun HomeScreen(
         } else {
             item { SectionLabel("Where it went") }
             val top = summary.byCategory.first().spentPaise.toFloat()
-            items(summary.byCategory, key = { it.category.name }) { total ->
+            items(summary.byCategory, key = { it.category.id }) { total ->
+                val share = if (summary.spentPaise > 0) (total.spentPaise * 100 / summary.spentPaise) else 0L
                 Panel(Modifier.clickable { onCategory(total.category) }) {
-                    Row {
-                        Text(total.category.label, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Text(Money.format(total.spentPaise))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        EmojiBadge(total.category.emoji, size = 36)
+                        Column(Modifier.weight(1f)) {
+                            Text(total.category.label, fontWeight = FontWeight.SemiBold)
+                            Text("$share% of spending", style = MaterialTheme.typography.bodySmall, color = Faint)
+                        }
+                        Text(Money.format(total.spentPaise), fontWeight = FontWeight.SemiBold)
                     }
                     Bar(total.spentPaise / top)
                 }

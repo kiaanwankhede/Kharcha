@@ -25,7 +25,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.kharcha.AppContainer
-import app.kharcha.core.Category
+import app.kharcha.core.CategoryCatalog
 
 @Composable
 fun AppRoot(container: AppContainer, startWithOnboarding: Boolean) {
@@ -38,7 +38,14 @@ fun AppRoot(container: AppContainer, startWithOnboarding: Boolean) {
             }
         }
         composable("main") {
-            MainScreen(container, openTransaction = { id -> nav.navigate("transaction/$id") })
+            MainScreen(
+                container,
+                openTransaction = { id -> nav.navigate("transaction/$id") },
+                openCategories = { nav.navigate("categories") },
+            )
+        }
+        composable("categories") {
+            CategoriesScreen(container, onBack = { nav.popBackStack() })
         }
         composable("transaction/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
             DetailScreen(container, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() })
@@ -54,9 +61,11 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-private fun MainScreen(container: AppContainer, openTransaction: (Long) -> Unit) {
+private fun MainScreen(container: AppContainer, openTransaction: (Long) -> Unit, openCategories: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
-    var categoryFilter by rememberSaveable { mutableStateOf<Category?>(null) }
+    var categoryFilterId by rememberSaveable { mutableStateOf<String?>(null) }
+    val catalog by container.repository.catalog.collectAsStateWithLifecycle(initialValue = CategoryCatalog())
+    val categoryFilter = categoryFilterId?.let(catalog::byId)
     val transactions by container.repository.transactions.collectAsStateWithLifecycle(initialValue = emptyList())
     val limit by container.prefs.monthlyLimit.collectAsStateWithLifecycle()
 
@@ -69,7 +78,7 @@ private fun MainScreen(container: AppContainer, openTransaction: (Long) -> Unit)
                         selected = tab == item,
                         onClick = {
                             tab = item
-                            if (item != Tab.TRANSACTIONS) categoryFilter = null
+                            if (item != Tab.TRANSACTIONS) categoryFilterId = null
                         },
                         icon = { Icon(item.icon, contentDescription = null) },
                         label = { Text(item.label) },
@@ -84,7 +93,7 @@ private fun MainScreen(container: AppContainer, openTransaction: (Long) -> Unit)
                 transactions = transactions,
                 monthlyLimitPaise = limit,
                 onCategory = { category ->
-                    categoryFilter = category
+                    categoryFilterId = category.id
                     tab = Tab.TRANSACTIONS
                 },
                 onTransaction = openTransaction,
@@ -93,12 +102,12 @@ private fun MainScreen(container: AppContainer, openTransaction: (Long) -> Unit)
             Tab.TRANSACTIONS -> TransactionsScreen(
                 transactions = transactions,
                 categoryFilter = categoryFilter,
-                onClearFilter = { categoryFilter = null },
+                onClearFilter = { categoryFilterId = null },
                 onTransaction = openTransaction,
                 modifier = modifier,
             )
             Tab.INSIGHTS -> InsightsScreen(transactions, limit, modifier)
-            Tab.SETTINGS -> SettingsScreen(container, modifier)
+            Tab.SETTINGS -> SettingsScreen(container, openCategories, modifier)
         }
     }
 }

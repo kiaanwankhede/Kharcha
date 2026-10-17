@@ -44,7 +44,7 @@ import app.kharcha.core.WrongPassphraseException
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
+fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = container.prefs
@@ -107,6 +107,12 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         message?.let { Panel(color = Navy) { Text(it, color = Paper) } }
+
+        SectionLabel("Categories")
+        Panel {
+            Text("Add your own categories with an emoji, or rename and delete the ones you made.", color = Muted)
+            Button(onClick = openCategories) { Text("Manage categories") }
+        }
 
         SectionLabel("Monthly limit")
         Panel {

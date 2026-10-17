@@ -217,7 +217,9 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
             .maxByOrNull { it.second }?.first
     }
 
-    private fun date(t: Transaction): LocalDate = Instant.ofEpochMilli(t.timestampMillis).atZone(zone).toLocalDate()
+    private fun date(t: Transaction): LocalDate = dateOf(t)
+
+    internal fun dateOf(t: Transaction): LocalDate = Instant.ofEpochMilli(t.timestampMillis).atZone(zone).toLocalDate()
 
     private fun YearMonth.contains(t: Transaction): Boolean = YearMonth.from(date(t)) == this
 
@@ -244,4 +246,11 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
             return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2
         }
     }
+}
+
+/** Total spend for each of the [months] months ending with [today]'s month, oldest first. */
+fun InsightsEngine.monthlyTotals(all: List<Transaction>, today: LocalDate, months: Int = 6): List<Pair<YearMonth, Long>> {
+    val end = YearMonth.from(today)
+    val totals = all.filter { it.isSpend }.groupBy { YearMonth.from(dateOf(it)) }.mapValues { (_, v) -> v.sumOf { it.amountPaise } }
+    return (months - 1 downTo 0).map { back -> end.minusMonths(back.toLong()).let { it to (totals[it] ?: 0L) } }
 }

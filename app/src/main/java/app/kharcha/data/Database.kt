@@ -13,7 +13,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import app.kharcha.core.Category
+import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
 import app.kharcha.core.Source
 import app.kharcha.core.Transaction
@@ -41,20 +44,32 @@ data class TransactionEntity(
     val note: String?,
 )
 
+@Entity(tableName = "custom_categories")
+data class CustomCategoryEntity(
+    @PrimaryKey val id: String,
+    val label: String,
+    val emoji: String,
+    val countsAsSpend: Boolean,
+)
+
+fun CustomCategoryEntity.toCore() = Category(id, label, emoji, countsAsSpend, builtIn = false)
+
+fun Category.toEntity() = CustomCategoryEntity(id, label, emoji, countsAsSpend)
+
 @Entity(tableName = "merchant_rules")
 data class MerchantRuleEntity(
     @PrimaryKey val merchantKey: String,
     val category: String,
 )
 
-fun TransactionEntity.toCore() = Transaction(
+fun TransactionEntity.toCore(catalog: CategoryCatalog) = Transaction(
     id = id,
     amountPaise = amountPaise,
     direction = Direction.valueOf(direction),
     timestampMillis = timestampMillis,
     merchant = merchant,
     merchantKey = merchantKey,
-    category = runCatching { Category.valueOf(category) }.getOrDefault(Category.OTHER),
+    category = catalog.byId(category),
     source = Source.valueOf(source),
     rawText = rawText,
     accountLast4 = accountLast4,
@@ -72,7 +87,7 @@ fun Transaction.toEntity() = TransactionEntity(
     timestampMillis = timestampMillis,
     merchant = merchant,
     merchantKey = merchantKey,
-    category = category.name,
+    category = category.id,
     source = source.name,
     rawText = rawText,
     accountLast4 = accountLast4,
@@ -118,6 +133,9 @@ interface TransactionDao {
     @Query("UPDATE transactions SET category = :category WHERE merchantKey = :merchantKey")
     suspend fun setCategoryForMerchant(merchantKey: String, category: String)
 
+    @Query("UPDATE transactions SET category = :to WHERE category = :from")
+    suspend fun moveCategory(from: String, to: String)
+
     @Query("DELETE FROM transactions")
     suspend fun deleteAll()
 }
@@ -133,17 +151,54 @@ interface MerchantRuleDao {
     @Query("DELETE FROM merchant_rules")
     suspend fun deleteAll()
 
+    @Query("DELETE FROM merchant_rules WHERE category = :category")
+    suspend fun deleteForCategory(category: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(rules: List<MerchantRuleEntity>)
 }
 
-@Database(entities = [TransactionEntity::class, MerchantRuleEntity::class], version = 1, exportSchema = true)
+@Dao
+interface CustomCategoryDao {
+    @Query("SELECT * FROM custom_categories ORDER BY label")
+    fun observeAll(): Flow<List<CustomCategoryEntity>>
+
+    @Query("SELECT * FROM custom_categories ORDER BY label")
+    suspend fun getAll(): List<CustomCategoryEntity>
+
+    @Upsert
+    suspend fun upsert(category: CustomCategoryEntity)
+
+    @Query("DELETE FROM custom_categories WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM custom_categories")
+    suspend fun deleteAll()
+}
+
+@Database(
+    entities = [TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class],
+    version = 2,
+    exportSchema = true,
+)
 abstract class KharchaDatabase : RoomDatabase() {
     abstract fun transactions(): TransactionDao
     abstract fun rules(): MerchantRuleDao
+    abstract fun customCategories(): CustomCategoryDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `custom_categories` (`id` TEXT NOT NULL, `label` TEXT NOT NULL, " +
+                        "`emoji` TEXT NOT NULL, `countsAsSpend` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
-            Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db").build()
+            Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
+                .addMigrations(MIGRATION_1_2)
+                .build()
     }
 }

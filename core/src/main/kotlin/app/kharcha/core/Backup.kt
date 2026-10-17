@@ -18,12 +18,13 @@ import javax.crypto.spec.SecretKeySpec
 
 @Serializable
 data class BackupPayload(
-    val version: Int = 1,
+    val version: Int = 2,
     val createdAtMillis: Long,
     val transactions: List<Transaction>,
     /** Merchant key -> category the user chose. */
     val merchantRules: Map<String, Category> = emptyMap(),
     val monthlyLimitPaise: Long? = null,
+    val customCategories: List<Category> = emptyList(),
 )
 
 class WrongPassphraseException : Exception("The passphrase does not match this backup")

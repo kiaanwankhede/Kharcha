@@ -68,3 +68,30 @@ class InsightsTest {
         assertTrue(insights.any { it.kind == InsightKind.RECURRING })
     }
 }
+
+class MonthlyTotalsTest {
+    @Test
+    fun `six months oldest first, empty months are zero`() {
+        val zone = ZoneId.of("Asia/Kolkata")
+        val t = Transaction(
+            amountPaise = 50000, direction = Direction.DEBIT,
+            timestampMillis = LocalDate.of(2026, 9, 3).atTime(10, 0).atZone(zone).toInstant().toEpochMilli(),
+            merchant = "A", merchantKey = "a", category = Category.FOOD, source = Source.SMS, rawText = "",
+        )
+        val totals = InsightsEngine(zone).monthlyTotals(listOf(t, t.copy(category = Category.TRANSFER)), LocalDate.of(2026, 10, 17))
+        assertEquals(6, totals.size)
+        assertEquals(java.time.YearMonth.of(2026, 5), totals.first().first)
+        assertEquals(50000L, totals[4].second)
+        assertEquals(0L, totals[5].second)
+    }
+
+    @Test
+    fun `custom categories survive a backup round trip`() {
+        val mine = Category.custom("Pet care", "🐶")
+        val payload = BackupPayload(createdAtMillis = 1, transactions = emptyList(), customCategories = listOf(mine), merchantRules = mapOf("vet" to mine))
+        val decoded = BackupCodec.decode(BackupCodec.encode(payload, "passphrase1".toCharArray()), "passphrase1".toCharArray())
+        assertEquals(payload, decoded)
+        assertEquals(mine, CategoryCatalog(decoded.customCategories).byId(mine.id))
+        assertEquals(Category.OTHER, CategoryCatalog().byId("custom_gone"))
+    }
+}
