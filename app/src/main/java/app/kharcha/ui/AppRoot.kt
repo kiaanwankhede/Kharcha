@@ -191,4 +191,4 @@ private fun mostUsedCategories(reviewed: List<Transaction>): List<Category> =
         .map { it.key }
         .take(5)
         .toList()
-        .ifEmpty { listOf(Category.FOOD, Category.GROCERIES, Category.TRAVEL, Category.SHOPPING, Category.BILLS) }
+        .ifEmpty { listOf(Category.FOOD_DELIVERY, Category.QUICK_COMMERCE, Category.CABS, Category.RESTAURANTS, Category.ONLINE_SHOPPING) }

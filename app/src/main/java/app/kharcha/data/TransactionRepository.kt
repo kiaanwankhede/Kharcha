@@ -139,6 +139,27 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
         customCategories.delete(category.id)
     }
 
+    /**
+     * One-time move from the first version's flat categories to the subcategory tree: payments are
+     * re-sorted by merchant where possible, and merchant rules follow.
+     */
+    suspend fun migrateToCategoryTree() {
+        if (prefs.categoryTreeMigrated) return
+        val catalog = currentCatalog()
+        dao.getAll().forEach { entity ->
+            if (entity.category in Category.LEGACY_IDS) {
+                val moved = Classifier.recategorise(entity.toCore(catalog), entity.category)
+                dao.update(moved.toEntity())
+            }
+        }
+        rules.getAll().forEach { rule ->
+            val legacy = Category.LEGACY_IDS[rule.category] ?: return@forEach
+            val target = Merchants.brandFor(rule.merchantKey)?.category?.takeIf { legacy.countsAsSpend && it.countsAsSpend } ?: legacy
+            rules.upsert(rule.copy(category = target.id))
+        }
+        prefs.categoryTreeMigrated = true
+    }
+
     suspend fun snapshot(): BackupPayload {
         val catalog = currentCatalog()
         return BackupPayload(

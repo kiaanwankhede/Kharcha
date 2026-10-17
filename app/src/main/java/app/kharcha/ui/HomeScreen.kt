@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +53,7 @@ fun HomeScreen(
     }
     val trend = remember(transactions) { InsightsEngine(Zone).monthlyTotals(transactions, today) }
     var selectedDay by rememberSaveable(month) { mutableStateOf(day) }
+    var expandedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
     val daily = remember(transactions, month) { InsightsEngine(Zone).dailyTotals(transactions, month, today) }
     val dayTransactions = remember(transactions, selectedDay) { transactions.filter { it.localDate() == selectedDay } }
 
@@ -171,6 +173,17 @@ fun HomeScreen(
                 }
             }
         }
+        if (summary.savedPaise > 0) {
+            item {
+                Panel(color = CoolTint) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("📈  Saved & invested", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text(Money.format(summary.savedPaise), fontWeight = FontWeight.Bold, color = Blue)
+                    }
+                    Text("SIPs, stocks, FDs and other savings this month. Not counted as spending.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                }
+            }
+        }
         summary.safeToSpendTodayPaise?.let { safe ->
             item {
                 Panel(color = Navy) {
@@ -188,20 +201,47 @@ fun HomeScreen(
             }
         } else {
             item { SectionLabel("Where it went") }
-            val top = summary.byCategory.first().spentPaise.toFloat()
-            items(summary.byCategory, key = { it.category.id }) { total ->
-                val share = if (summary.spentPaise > 0) (total.spentPaise * 100 / summary.spentPaise) else 0L
-                val clickable = total.category != Category.UNLOGGED_CASH && total.category != Category.UNTRACKED_WALLET
-                Panel(if (clickable) Modifier.clickable { onCategory(total.category) } else Modifier) {
+            val top = summary.byGroup.first().spentPaise.toFloat()
+            items(summary.byGroup, key = { it.group.id }) { group ->
+                val share = if (summary.spentPaise > 0) (group.spentPaise * 100 / summary.spentPaise) else 0L
+                val expanded = group.group.id in expandedGroups
+                Panel(Modifier.clickable { expandedGroups = if (expanded) expandedGroups - group.group.id else expandedGroups + group.group.id }) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        EmojiBadge(total.category.emoji, size = 36)
+                        EmojiBadge(group.group.emoji, size = 36)
                         Column(Modifier.weight(1f)) {
-                            Text(total.category.label, fontWeight = FontWeight.SemiBold)
-                            Text("$share% of spending", style = MaterialTheme.typography.bodySmall, color = Faint)
+                            Text(group.group.label, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "$share% of spending · ${group.children.size} ${if (group.children.size == 1) "subcategory" else "subcategories"} ${if (expanded) "▴" else "▾"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Faint,
+                            )
                         }
-                        Text(Money.format(total.spentPaise), fontWeight = FontWeight.SemiBold)
+                        Text(Money.format(group.spentPaise), fontWeight = FontWeight.SemiBold)
                     }
-                    Bar(total.spentPaise / top)
+                    Bar(group.spentPaise / top)
+                    if (expanded) {
+                        group.children.forEach { child ->
+                            val clickable = child.category != Category.UNLOGGED_CASH && child.category != Category.UNTRACKED_WALLET
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .then(if (clickable) Modifier.clickable { onCategory(child.category) } else Modifier)
+                                    .padding(start = 48.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("${child.category.emoji}  ${child.category.label}", Modifier.weight(1f), color = Muted)
+                                Text(Money.format(child.spentPaise), color = Muted)
+                            }
+                        }
+                        Text(
+                            "See all ${group.group.label} payments ›",
+                            Modifier
+                                .clickable { onCategory(group.group) }
+                                .padding(start = 48.dp, top = 4.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Blue,
+                        )
+                    }
                 }
             }
         }

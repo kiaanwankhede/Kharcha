@@ -13,14 +13,14 @@ class ClassifierTest {
     fun `known brand from payee name`() {
         val t = sms("Sent Rs.450.00 From HDFC Bank A/C *1234 To SWIGGY LIMITED On 16/10/26 Ref 628941075321")
         assertEquals("Swiggy", t.merchant)
-        assertEquals(Category.FOOD, t.category)
+        assertEquals(Category.FOOD_DELIVERY, t.category)
     }
 
     @Test
     fun `known brand from VPA`() {
         val t = sms("Sent Rs.299.00 from Kotak Bank AC X1234 to blinkit.payu@hdfcbank on 16-10-26.UPI Ref 628941075399.", "VM-KOTAKB")
         assertEquals("Blinkit", t.merchant)
-        assertEquals(Category.GROCERIES, t.category)
+        assertEquals(Category.QUICK_COMMERCE, t.category)
     }
 
     @Test
@@ -46,9 +46,9 @@ class ClassifierTest {
 
     @Test
     fun `credits are income and card bill payments are transfers`() {
-        assertEquals(Category.INCOME, sms("Rs.1200.00 credited to HDFC Bank A/c XX1234 on 16-10-26 from VPA ravi@okaxis (UPI 628941075322)").category)
+        assertEquals(Category.RECEIVED, sms("Rs.1200.00 credited to HDFC Bank A/c XX1234 on 16-10-26 from VPA ravi@okaxis (UPI 628941075322)").category)
         assertEquals(
-            Category.TRANSFER,
+            Category.CARD_BILL,
             sms("Payment of Rs.18,420.00 received towards your HDFC Bank Credit Card ending 5678 on 16-10-26.").category,
         )
     }
@@ -56,8 +56,8 @@ class ClassifierTest {
     @Test
     fun `user rule wins`() {
         val parsed = SmsParser.parse("AX-HDFCBK", "Sent Rs.450.00 From HDFC Bank A/C *1234 To SWIGGY On 16/10/26 Ref 628941075321", 0L)!!
-        val t = Classifier(mapOf("swiggy" to Category.ENTERTAINMENT)).classify(parsed)
-        assertEquals(Category.ENTERTAINMENT, t.category)
+        val t = Classifier(mapOf("swiggy" to Category.MOVIES)).classify(parsed)
+        assertEquals(Category.MOVIES, t.category)
     }
 
     @Test
@@ -65,5 +65,30 @@ class ClassifierTest {
         assertEquals("Swiggy", Merchants.tidy("SWIGGY LIMITED"))
         assertEquals("Ravi Kumar", Merchants.tidy("ravi kumar"))
         assertEquals("Chai Point", Merchants.tidy("CHAI POINT PVT LTD"))
+    }
+
+    @Test
+    fun `credits are sorted into salary, refunds and interest`() {
+        assertEquals(Category.SALARY, sms("Rs.85,000.00 credited to A/c XX1234 on 01-10-26 by NEFT SALARY OCT ACME TECH").category)
+        assertEquals(Category.REFUNDS, sms("Rs.450.00 credited to A/c XX1234 on 02-10-26 towards refund from SWIGGY").category)
+        assertEquals(Category.INTEREST, sms("Rs.312.00 credited to A/c XX1234 on 30-09-26 as interest paid for the quarter").category)
+    }
+
+    @Test
+    fun `everyday Indian payees land in the right subcategory`() {
+        assertEquals(Category.MILK, sms("Sent Rs.1,240.00 From HDFC Bank A/C *1234 To COUNTRY DELIGHT On 01/10/26 Ref 628941075500").category)
+        assertEquals(Category.HOME_SERVICES, sms("Sent Rs.499.00 From HDFC Bank A/C *1234 To URBAN COMPANY On 01/10/26 Ref 628941075501").category)
+        assertEquals(Category.PUJA, sms("Sent Rs.501.00 From HDFC Bank A/C *1234 To SHRI SAI MANDIR TRUST On 01/10/26 Ref 628941075502").category)
+        assertEquals(Category.STOCKS, sms("Sent Rs.10,000.00 From HDFC Bank A/C *1234 To ZERODHA BROKING On 01/10/26 Ref 628941075503").category)
+        assertEquals(Category.G_FOOD, Category.groupOf(Category.FOOD_DELIVERY))
+    }
+
+    @Test
+    fun `old flat categories move into the tree, by merchant where possible`() {
+        val old = sms("Sent Rs.450.00 From HDFC Bank A/C *1234 To SWIGGY On 16/10/26 Ref 628941075321")
+        assertEquals(Category.FOOD_DELIVERY, Classifier.recategorise(old, "FOOD").category)
+        assertEquals(Category.RESTAURANTS, Classifier.recategorise(old.copy(merchant = "Hotel Annapurna", vpa = null), "FOOD").category)
+        assertEquals(Category.CASH, Classifier.recategorise(old, "CASH").category)
+        assertEquals(Category.RESTAURANTS, CategoryCatalog().byId("FOOD"))
     }
 }

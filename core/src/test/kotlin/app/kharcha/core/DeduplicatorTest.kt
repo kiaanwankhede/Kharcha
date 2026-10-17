@@ -52,9 +52,9 @@ class DeduplicatorTest {
     @Test
     fun `new captures wait for review and a reviewed record stays reviewed after a merge`() {
         assertEquals(ReviewStatus.PENDING, sms.status)
-        val reviewed = sms.copy(status = ReviewStatus.REVIEWED, category = Category.FOOD)
+        val reviewed = sms.copy(status = ReviewStatus.REVIEWED, category = Category.FOOD_DELIVERY)
         val merged = Deduplicator.merge(reviewed, notification)
         assertEquals(ReviewStatus.REVIEWED, merged.status)
-        assertEquals(Category.FOOD, merged.category)
+        assertEquals(Category.FOOD_DELIVERY, merged.category)
     }
 }

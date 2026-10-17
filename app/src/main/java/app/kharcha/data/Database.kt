@@ -19,6 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
+import app.kharcha.core.Kind
 import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
 import app.kharcha.core.Transaction
@@ -53,11 +54,15 @@ data class CustomCategoryEntity(
     val label: String,
     val emoji: String,
     val countsAsSpend: Boolean,
+    val parentId: String?,
 )
 
-fun CustomCategoryEntity.toCore() = Category(id, label, emoji, countsAsSpend, builtIn = false)
+fun CustomCategoryEntity.toCore(): Category {
+    val group = Category.GROUPS.firstOrNull { it.id == parentId } ?: Category.G_OTHER
+    return Category(id, label, emoji, group.kind == Kind.SPENDING, builtIn = false, parentId = group.id, kind = group.kind)
+}
 
-fun Category.toEntity() = CustomCategoryEntity(id, label, emoji, countsAsSpend)
+fun Category.toEntity() = CustomCategoryEntity(id, label, emoji, countsAsSpend, parentId)
 
 @Entity(tableName = "merchant_rules")
 data class MerchantRuleEntity(
@@ -198,7 +203,7 @@ interface CustomCategoryDao {
 
 @Database(
     entities = [TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
@@ -223,9 +228,16 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // Custom categories now sit under a group.
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `custom_categories` ADD COLUMN `parentId` TEXT")
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }

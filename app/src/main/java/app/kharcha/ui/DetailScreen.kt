@@ -78,7 +78,10 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
                 Text("Category", Modifier.weight(1f), color = Muted)
                 Box {
                     TextButton(onClick = { menuOpen = true }) {
-                        Text("${txn.category.emoji} ${txn.category.label}  ▾", fontWeight = FontWeight.Bold)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("${txn.category.emoji} ${txn.category.label}  ▾", fontWeight = FontWeight.Bold)
+                            Text(Category.groupOf(txn.category).label, style = MaterialTheme.typography.bodySmall, color = Faint)
+                        }
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
@@ -88,14 +91,9 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
                                 creatingCategory = true
                             },
                         )
-                        catalog.all.forEach { category ->
-                            DropdownMenuItem(
-                                text = { Text("${category.emoji}  ${category.label}") },
-                                onClick = {
-                                    menuOpen = false
-                                    scope.launch { repository.setCategory(txn.id, category, rememberForMerchant) }
-                                },
-                            )
+                        CategoryMenuItems(catalog) { category ->
+                            menuOpen = false
+                            scope.launch { repository.setCategory(txn.id, category, rememberForMerchant) }
                         }
                     }
                 }
@@ -158,10 +156,11 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             CategoryEditorDialog(
                 initial = null,
                 onDismiss = { creatingCategory = false },
-                onSave = { label, emoji, countsAsSpend ->
+                defaultGroup = Category.groupOf(txn.category),
+                onSave = { label, emoji, parent ->
                     creatingCategory = false
                     scope.launch {
-                        val created = repository.saveCategory(Category.custom(label, emoji, countsAsSpend))
+                        val created = repository.saveCategory(Category.custom(label, emoji, parent))
                         repository.setCategory(txn.id, created, rememberForMerchant)
                     }
                 },

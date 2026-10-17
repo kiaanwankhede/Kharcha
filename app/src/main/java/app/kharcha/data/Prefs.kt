@@ -37,6 +37,10 @@ class Prefs(context: Context) {
         get() = prefs.getString("last_backup_error", null)
         set(value) = prefs.edit { putString("last_backup_error", value) }
 
+    var categoryTreeMigrated: Boolean
+        get() = prefs.getBoolean("category_tree_migrated", false)
+        set(value) = prefs.edit { putBoolean("category_tree_migrated", value) }
+
     var reviewReminder: Boolean
         get() = prefs.getBoolean("review_reminder", true)
         set(value) = prefs.edit { putBoolean("review_reminder", value) }

@@ -27,15 +27,15 @@ class InsightsTest {
         // Steady background spend for three months.
         var d = LocalDate.of(2026, 7, 1)
         while (d <= today) {
-            add(spend(d, 120, "Chai Point", Category.FOOD))
+            add(spend(d, 120, "Chai Point", Category.FOOD_DELIVERY))
             d = d.plusDays(1)
         }
         // Netflix every month on the 21st.
-        listOf(7, 8, 9).forEach { add(spend(LocalDate.of(2026, it, 21), 649, "Netflix", Category.SUBSCRIPTIONS)) }
+        listOf(7, 8, 9).forEach { add(spend(LocalDate.of(2026, it, 21), 649, "Netflix", Category.OTT)) }
         // October weekend Zomato orders push Food up.
-        listOf(3, 4, 10, 11).forEach { add(spend(LocalDate.of(2026, 10, it), 700, "Zomato", Category.FOOD)) }
+        listOf(3, 4, 10, 11).forEach { add(spend(LocalDate.of(2026, 10, it), 700, "Zomato", Category.FOOD_DELIVERY)) }
         // One big purchase.
-        add(spend(LocalDate.of(2026, 10, 12), 8999, "Croma", Category.SHOPPING))
+        add(spend(LocalDate.of(2026, 10, 12), 8999, "Croma", Category.ELECTRONICS))
         // Own transfer must not count as spend.
         add(spend(LocalDate.of(2026, 10, 5), 18420, "Credit card bill", Category.TRANSFER))
     }
@@ -45,7 +45,7 @@ class InsightsTest {
         val s = engine.summary(data, today, monthlyLimitPaise = 30_000_00)
         assertEquals((17 * 120 + 4 * 700 + 8999) * 100L, s.spentPaise)
         assertEquals(17 * 120 * 100L, s.previousSamePointPaise)
-        assertEquals(Category.SHOPPING, s.byCategory.first().category)
+        assertEquals(Category.ELECTRONICS, s.byCategory.first().category)
         // ₹30,000 limit minus spent, over the 15 days left including today.
         assertEquals((30_000_00 - s.spentPaise) / 15, s.safeToSpendTodayPaise)
     }
@@ -76,7 +76,7 @@ class MonthlyTotalsTest {
         val t = Transaction(
             amountPaise = 50000, direction = Direction.DEBIT,
             timestampMillis = LocalDate.of(2026, 9, 3).atTime(10, 0).atZone(zone).toInstant().toEpochMilli(),
-            merchant = "A", merchantKey = "a", category = Category.FOOD, source = Source.SMS, rawText = "",
+            merchant = "A", merchantKey = "a", category = Category.FOOD_DELIVERY, source = Source.SMS, rawText = "",
         )
         val totals = InsightsEngine(zone).monthlyTotals(listOf(t, t.copy(category = Category.TRANSFER)), LocalDate.of(2026, 10, 17))
         assertEquals(6, totals.size)
@@ -87,7 +87,7 @@ class MonthlyTotalsTest {
 
     @Test
     fun `custom categories survive a backup round trip`() {
-        val mine = Category.custom("Pet care", "🐶")
+        val mine = Category.custom("Pet care", "🐶", Category.G_PEOPLE)
         val payload = BackupPayload(createdAtMillis = 1, transactions = emptyList(), customCategories = listOf(mine), merchantRules = mapOf("vet" to mine))
         val decoded = BackupCodec.decode(BackupCodec.encode(payload, "passphrase1".toCharArray()), "passphrase1".toCharArray())
         assertEquals(payload, decoded)
@@ -110,7 +110,7 @@ class CashTest {
     fun `withdrawn cash counts once, whether or not spends are logged`() {
         val engine = InsightsEngine(zone)
         val atm = txn(2, 2000, Category.CASH)
-        val upi = txn(3, 500, Category.FOOD)
+        val upi = txn(3, 500, Category.FOOD_DELIVERY)
 
         // Nothing logged: the whole withdrawal counts as unlogged cash.
         val none = engine.summary(listOf(atm, upi), today)
@@ -118,7 +118,7 @@ class CashTest {
         assertTrue(none.byCategory.any { it.category == Category.UNLOGGED_CASH && it.spentPaise == 200000L })
 
         // ₹1,200 logged: logged spends count, the remaining ₹800 stays unlogged. Total unchanged.
-        val logged = listOf(atm, upi, txn(4, 700, Category.FOOD, Source.MANUAL), txn(5, 500, Category.TRAVEL, Source.MANUAL))
+        val logged = listOf(atm, upi, txn(4, 700, Category.FOOD_DELIVERY, Source.MANUAL), txn(5, 500, Category.CABS, Source.MANUAL))
         val some = engine.summary(logged, today)
         assertEquals(250000L, some.spentPaise)
         assertEquals(200000L, some.cashWithdrawnPaise)
@@ -126,13 +126,13 @@ class CashTest {
         assertTrue(some.byCategory.any { it.category == Category.UNLOGGED_CASH && it.spentPaise == 80000L })
 
         // Logged more than withdrawn (cash from elsewhere): no negative unlogged amount.
-        val over = engine.summary(listOf(atm, txn(6, 2500, Category.SHOPPING, Source.MANUAL)), today)
+        val over = engine.summary(listOf(atm, txn(6, 2500, Category.ELECTRONICS, Source.MANUAL)), today)
         assertEquals(250000L, over.spentPaise)
     }
 
     @Test
     fun `daily totals cover each day up to today`() {
-        val days = InsightsEngine(zone).dailyTotals(listOf(txn(3, 500, Category.FOOD), txn(3, 100, Category.FOOD)), java.time.YearMonth.of(2026, 10), today)
+        val days = InsightsEngine(zone).dailyTotals(listOf(txn(3, 500, Category.FOOD_DELIVERY), txn(3, 100, Category.FOOD_DELIVERY)), java.time.YearMonth.of(2026, 10), today)
         assertEquals(17, days.size)
         assertEquals(60000L, days[2].second)
         assertEquals(0L, days[0].second)
@@ -159,7 +159,7 @@ class WalletTest {
         }
         // Paying out of the wallet is a spend, not a top-up.
         val fromWallet = Classifier().classify(SmsParser.parse("VM-PAYTMB", "Rs.450 paid from your Paytm Wallet to Swiggy on 02-10-26. Txn ID 628941075404", t0)!!)
-        assertEquals(Category.FOOD, fromWallet.category)
+        assertEquals(Category.FOOD_DELIVERY, fromWallet.category)
 
         // The wallet app's own "money added" notification is skipped; the bank SMS records it.
         assertEquals(null, NotificationParser.parse("net.one97.paytm", "₹2,000 added to Paytm Wallet", null, t0))
@@ -180,7 +180,7 @@ class WalletTest {
         // Top-up plus a ₹450 wallet payment: still ₹2,000 in total, ₹450 of it as Food. Not ₹2,450.
         val both = engine.summary(listOf(topUp, walletSpend), today)
         assertEquals(200000L, both.spentPaise)
-        assertTrue(both.byCategory.any { it.category == Category.FOOD && it.spentPaise == 45000L })
+        assertTrue(both.byCategory.any { it.category == Category.FOOD_DELIVERY && it.spentPaise == 45000L })
         assertTrue(both.byCategory.any { it.category == Category.UNTRACKED_WALLET && it.spentPaise == 155000L })
         assertEquals(200000L, both.walletToppedUpPaise)
         assertEquals(45000L, both.walletSpentPaise)

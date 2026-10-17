@@ -11,6 +11,10 @@ import app.kharcha.data.Prefs
 import app.kharcha.data.TransactionRepository
 import app.kharcha.notify.Notifications
 import app.kharcha.notify.ReviewReminderWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class KharchaApplication : Application() {
     lateinit var container: AppContainer
@@ -22,6 +26,7 @@ class KharchaApplication : Application() {
         BackupWorker.schedule(this)
         Notifications.createChannels(this)
         ReviewReminderWorker.schedule(this)
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { container.repository.migrateToCategoryTree() }
     }
 }
 

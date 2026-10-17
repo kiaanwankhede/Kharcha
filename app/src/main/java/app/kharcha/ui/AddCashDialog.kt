@@ -72,14 +72,9 @@ fun AddCashDialog(
                         Text("${category.emoji}  ${category.label}  ▾")
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        catalog.all.filter { it.countsAsSpend }.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text("${option.emoji}  ${option.label}") },
-                                onClick = {
-                                    category = option
-                                    menuOpen = false
-                                },
-                            )
+                        CategoryMenuItems(catalog, filter = { it.countsAsSpend }) { option ->
+                            category = option
+                            menuOpen = false
                         }
                     }
                 }

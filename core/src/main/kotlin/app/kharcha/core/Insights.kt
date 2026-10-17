@@ -9,6 +9,9 @@ import kotlin.math.roundToInt
 
 data class CategoryTotal(val category: Category, val spentPaise: Long)
 
+/** A group's total with its subcategories, largest first. */
+data class GroupTotal(val group: Category, val spentPaise: Long, val children: List<CategoryTotal>)
+
 data class MerchantTotal(val merchant: String, val merchantKey: String, val spentPaise: Long, val count: Int)
 
 data class RecurringPayment(
@@ -35,7 +38,14 @@ data class MonthSummary(
     val cashLoggedPaise: Long = 0,
     val walletToppedUpPaise: Long = 0,
     val walletSpentPaise: Long = 0,
-)
+    /** Put into savings and investments this month; not spending. */
+    val savedPaise: Long = 0,
+) {
+    val byGroup: List<GroupTotal>
+        get() = byCategory.groupBy { Category.groupOf(it.category) }
+            .map { (group, children) -> GroupTotal(group, children.sumOf { it.spentPaise }, children.sortedByDescending { it.spentPaise }) }
+            .sortedByDescending { it.spentPaise }
+}
 
 enum class InsightKind { SUMMARY, SPIKE, DROP, RECURRING, UNUSUAL, HABIT }
 
@@ -66,7 +76,7 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
         return MonthSummary(
             month = month,
             spentPaise = spent,
-            receivedPaise = thisMonth.filter { it.direction == Direction.CREDIT && it.category == Category.INCOME }.sumOf { it.amountPaise },
+            receivedPaise = thisMonth.filter { it.direction == Direction.CREDIT && it.category.kind == Kind.INCOME }.sumOf { it.amountPaise },
             previousSamePointPaise = previousSamePoint,
             byCategory = (
                 spends.groupBy { it.category }.map { (category, items) -> CategoryTotal(category, items.sumOf { it.amountPaise }) } +
@@ -82,13 +92,14 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
             cashLoggedPaise = thisMonth.filter { it.isLoggedCash }.sumOf { it.amountPaise },
             walletToppedUpPaise = thisMonth.filter { it.isWalletTopUp }.sumOf { it.amountPaise },
             walletSpentPaise = thisMonth.filter { it.isWalletSpend }.sumOf { it.amountPaise },
+            savedPaise = thisMonth.filter { it.direction == Direction.DEBIT && it.category.kind == Kind.SAVING }.sumOf { it.amountPaise },
         )
     }
 
     fun recurring(all: List<Transaction>, today: LocalDate): List<RecurringPayment> {
         val since = today.minusDays(100)
         return all.asSequence()
-            .filter { it.isSpend && it.category != Category.PEOPLE && date(it) >= since && date(it) <= today }
+            .filter { it.isSpend && it.category.parentId != Category.G_PEOPLE.id && date(it) >= since && date(it) <= today }
             .groupBy { it.merchantKey }
             .mapNotNull { (_, payments) ->
                 val byMonth = payments.groupBy { YearMonth.from(date(it)) }

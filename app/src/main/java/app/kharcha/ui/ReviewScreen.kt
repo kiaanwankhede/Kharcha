@@ -46,6 +46,7 @@ import app.kharcha.AppContainer
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
+import app.kharcha.core.Kind
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -172,9 +173,9 @@ fun ReviewScreen(
                         scope.launch { repository.review(t.id, category, remember, note) }
                     },
                     onIgnore = { scope.launch { repository.ignore(t.id) } },
-                    onCreateCategory = { label, emoji, counts, remember, note ->
+                    onCreateCategory = { label, emoji, parent, remember, note ->
                         scope.launch {
-                            val created = repository.saveCategory(Category.custom(label, emoji, counts))
+                            val created = repository.saveCategory(Category.custom(label, emoji, parent))
                             repository.review(t.id, created, remember, note)
                         }
                     },
@@ -243,7 +244,7 @@ private fun ReviewCard(
     quickPicks: List<Category>,
     onReview: (Category, Boolean, String?) -> Unit,
     onIgnore: () -> Unit,
-    onCreateCategory: (label: String, emoji: String, countsAsSpend: Boolean, remember: Boolean, note: String?) -> Unit,
+    onCreateCategory: (label: String, emoji: String, parent: Category, remember: Boolean, note: String?) -> Unit,
 ) {
     var category by remember(t.id) { mutableStateOf(t.category) }
     var rememberForMerchant by remember(t.id) { mutableStateOf(true) }
@@ -306,20 +307,22 @@ private fun ReviewCard(
                             creating = true
                         },
                     )
-                    catalog.all.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text("${option.emoji}  ${option.label}") },
-                            onClick = {
-                                category = option
-                                moreOpen = false
-                            },
-                        )
+                    CategoryMenuItems(catalog) { option ->
+                        category = option
+                        moreOpen = false
                     }
                 }
             }
         }
-        if (chips.none { it.id == category.id }) {
-            Text("Selected: ${category.emoji} ${category.label}", style = MaterialTheme.typography.bodySmall, color = Muted)
+        Text(
+            "${Category.groupOf(category).emoji} ${Category.groupOf(category).label} › ${category.emoji} ${category.label}",
+            style = MaterialTheme.typography.bodySmall,
+            color = Muted,
+        )
+        when (category.kind) {
+            Kind.SAVING -> Text("Saving & investing: shown as saved, not spent.", style = MaterialTheme.typography.bodySmall, color = Blue)
+            Kind.INCOME -> Text("Money in: not counted as spending.", style = MaterialTheme.typography.bodySmall, color = Blue)
+            else -> Unit
         }
         when (category.id) {
             Category.WALLET.id -> Text(
@@ -332,7 +335,11 @@ private fun ReviewCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = Blue,
             )
-            Category.TRANSFER.id -> Text("Between your own accounts: not counted as spending.", style = MaterialTheme.typography.bodySmall, color = Blue)
+            Category.TRANSFER.id, Category.CARD_BILL.id -> Text(
+                "Between your own accounts: not counted as spending.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Blue,
+            )
         }
 
         OutlinedTextField(
@@ -359,9 +366,10 @@ private fun ReviewCard(
         CategoryEditorDialog(
             initial = null,
             onDismiss = { creating = false },
-            onSave = { label, emoji, counts ->
+            defaultGroup = Category.groupOf(category),
+            onSave = { label, emoji, parent ->
                 creating = false
-                onCreateCategory(label, emoji, counts, rememberForMerchant, note.takeIf { it.isNotBlank() })
+                onCreateCategory(label, emoji, parent, rememberForMerchant, note.takeIf { it.isNotBlank() })
             },
         )
     }

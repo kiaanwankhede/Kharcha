@@ -8,13 +8,13 @@ import org.junit.jupiter.api.assertThrows
 class BackupTest {
     private val txn = Transaction(
         amountPaise = 45000, direction = Direction.DEBIT, timestampMillis = 1_792_000_000_000L,
-        merchant = "Swiggy", merchantKey = "swiggy", category = Category.FOOD, source = Source.SMS,
+        merchant = "Swiggy", merchantKey = "swiggy", category = Category.FOOD_DELIVERY, source = Source.SMS,
         rawText = "Sent Rs.450.00 To SWIGGY", accountLast4 = "1234", reference = "628941075321",
     )
     private val payload = BackupPayload(
         createdAtMillis = 1L,
         transactions = listOf(txn),
-        merchantRules = mapOf("swiggy" to Category.FOOD),
+        merchantRules = mapOf("swiggy" to Category.FOOD_DELIVERY),
         monthlyLimitPaise = 30_000_00,
     )
 
@@ -36,7 +36,7 @@ class BackupTest {
     fun `csv escapes and neutralises formulas`() {
         val csv = CsvExporter.export(listOf(txn.copy(merchant = "=HYPERLINK(\"x\")", note = "a, b")))
         val row = csv.lines()[1]
-        assertEquals("2026-10-14,23:16:40,450.00,Debit,\"'=HYPERLINK(\"\"x\"\")\",Food,,1234,628941075321,\"a, b\"", row)
+        assertEquals("2026-10-14,23:16:40,450.00,Debit,\"'=HYPERLINK(\"\"x\"\")\",Food & drinks,Food delivery,,1234,628941075321,\"a, b\"", row)
     }
 
     @Test
