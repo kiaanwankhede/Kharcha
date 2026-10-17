@@ -75,7 +75,7 @@ class TransactionRepository(
     /** Every bank message (newest first) with what happened to it. */
     val messages: Flow<List<UnreadMessageEntity>> = unreadMessages.observeAll()
 
-    val rules: Flow<List<MessageRule>> = messageRules.observeAll().map { list -> list.map { it.toCore() } }
+    val learnedRules: Flow<List<MessageRule>> = messageRules.observeAll().map { list -> list.map { it.toCore() } }
 
     /** What capturing one SMS produced: a new payment to announce, and the parsed message (for balance checks). */
     data class Captured(val newTransaction: Transaction?, val parsed: ParsedTransaction?)

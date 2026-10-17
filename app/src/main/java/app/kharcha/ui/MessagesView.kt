@@ -75,7 +75,7 @@ fun MessagesView(
 ) {
     val repository = container.repository
     val messages by repository.messages.collectAsStateWithLifecycle(initialValue = emptyList())
-    val rules by repository.rules.collectAsStateWithLifecycle(initialValue = emptyList())
+    val rules by repository.learnedRules.collectAsStateWithLifecycle(initialValue = emptyList())
     val catalog by repository.catalog.collectAsStateWithLifecycle(initialValue = CategoryCatalog())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
