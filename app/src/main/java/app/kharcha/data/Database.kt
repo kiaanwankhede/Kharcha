@@ -22,6 +22,7 @@ import app.kharcha.core.Direction
 import app.kharcha.core.Kind
 import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
+import app.kharcha.core.SplitCodec
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.flow.Flow
 
@@ -46,6 +47,26 @@ data class TransactionEntity(
     val balancePaise: Long?,
     val note: String?,
     @ColumnInfo(defaultValue = "REVIEWED") val status: String,
+    val possibleDuplicateOf: Long?,
+    val splitsJson: String?,
+)
+
+/** A bank message the parser could not read, kept so the user can add it by hand. */
+@Entity(tableName = "unread_messages", indices = [Index(value = ["sender", "receivedAt"], unique = true)])
+data class UnreadMessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sender: String,
+    val body: String,
+    val receivedAt: Long,
+    val amountPaise: Long?,
+    val dismissed: Boolean,
+)
+
+/** The name the user gave a payee; future payments to the same payee use it too. */
+@Entity(tableName = "payee_names")
+data class PayeeNameEntity(
+    @PrimaryKey val merchantKey: String,
+    val name: String,
 )
 
 @Entity(tableName = "custom_categories")
@@ -89,6 +110,8 @@ fun TransactionEntity.toCore(catalog: CategoryCatalog) = Transaction(
     balancePaise = balancePaise,
     note = note,
     status = runCatching { ReviewStatus.valueOf(status) }.getOrDefault(ReviewStatus.PENDING),
+    possibleDuplicateOf = possibleDuplicateOf,
+    splits = SplitCodec.decode(splitsJson, catalog::byId),
 )
 
 fun Transaction.toEntity() = TransactionEntity(
@@ -108,6 +131,8 @@ fun Transaction.toEntity() = TransactionEntity(
     balancePaise = balancePaise,
     note = note,
     status = status.name,
+    possibleDuplicateOf = possibleDuplicateOf,
+    splitsJson = SplitCodec.encode(splits),
 )
 
 @Dao
@@ -133,6 +158,12 @@ interface TransactionDao {
     )
     suspend fun findNear(amountPaise: Long, direction: String, from: Long, to: Long): List<TransactionEntity>
 
+    @Query("SELECT * FROM transactions WHERE timestampMillis >= :since ORDER BY timestampMillis DESC")
+    suspend fun findSince(since: Long): List<TransactionEntity>
+
+    @Query("SELECT * FROM transactions WHERE merchantKey = :key")
+    suspend fun findByMerchantKey(key: String): List<TransactionEntity>
+
     @Insert
     suspend fun insert(entity: TransactionEntity): Long
 
@@ -153,6 +184,12 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("UPDATE transactions SET merchant = :name, merchantKey = :newKey WHERE merchantKey = :oldKey")
+    suspend fun renamePayee(oldKey: String, newKey: String, name: String)
+
+    @Query("UPDATE transactions SET possibleDuplicateOf = NULL WHERE id = :id")
+    suspend fun clearDuplicateFlag(id: Long)
 
     @Query("SELECT COUNT(*) FROM transactions WHERE status = 'PENDING'")
     fun observePendingCount(): Flow<Int>
@@ -203,15 +240,41 @@ interface CustomCategoryDao {
     suspend fun deleteAll()
 }
 
+@Dao
+interface UnreadMessageDao {
+    @Query("SELECT * FROM unread_messages WHERE dismissed = 0 ORDER BY receivedAt DESC")
+    fun observeOpen(): Flow<List<UnreadMessageEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(message: UnreadMessageEntity): Long
+
+    @Query("UPDATE unread_messages SET dismissed = 1 WHERE id = :id")
+    suspend fun dismiss(id: Long)
+}
+
+@Dao
+interface PayeeNameDao {
+    @Query("SELECT * FROM payee_names")
+    suspend fun getAll(): List<PayeeNameEntity>
+
+    @Upsert
+    suspend fun upsert(name: PayeeNameEntity)
+}
+
 @Database(
-    entities = [TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class],
-    version = 5,
+    entities = [
+        TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class,
+        UnreadMessageEntity::class, PayeeNameEntity::class,
+    ],
+    version = 6,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
     abstract fun transactions(): TransactionDao
     abstract fun rules(): MerchantRuleDao
     abstract fun customCategories(): CustomCategoryDao
+    abstract fun unreadMessages(): UnreadMessageDao
+    abstract fun payeeNames(): PayeeNameDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -244,9 +307,26 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // Possible duplicates, split payments, unreadable bank messages and payee names.
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `possibleDuplicateOf` INTEGER")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `splitsJson` TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `unread_messages` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`sender` TEXT NOT NULL, `body` TEXT NOT NULL, `receivedAt` INTEGER NOT NULL, `amountPaise` INTEGER, " +
+                        "`dismissed` INTEGER NOT NULL)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_unread_messages_sender_receivedAt` ON `unread_messages` (`sender`, `receivedAt`)",
+                )
+                db.execSQL("CREATE TABLE IF NOT EXISTS `payee_names` (`merchantKey` TEXT NOT NULL, `name` TEXT NOT NULL, PRIMARY KEY(`merchantKey`))")
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }

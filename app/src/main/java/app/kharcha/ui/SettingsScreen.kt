@@ -71,6 +71,17 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         postNotifications = Notifications.canPost(context)
     }
+    var contactsAllowed by remember { mutableStateOf(container.contacts.hasPermission()) }
+    val applyContacts: () -> Unit = {
+        scope.launch {
+            val changed = container.repository.applyContactNames()
+            message = if (changed > 0) "Named $changed payments from your contacts." else "No phone-number payees matched your contacts."
+        }
+    }
+    val contactsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        contactsAllowed = granted
+        if (granted) applyContacts()
+    }
 
     LifecycleResumeEffect(Unit) {
         sms = hasSmsPermission(context)
@@ -149,6 +160,20 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
                     prefs.reviewReminder = it
                 })
             }
+        }
+
+        SectionLabel("Payee names")
+        Panel {
+            Text(
+                "UPI transfers to phone numbers show as “UPI ··3210”. Allow contacts to show “Mom” instead. Names are looked up on this phone only.",
+                color = Muted,
+            )
+            if (contactsAllowed) {
+                OutlinedButton(onClick = applyContacts) { Text("Update past payments with contact names") }
+            } else {
+                Button(onClick = { contactsLauncher.launch(Manifest.permission.READ_CONTACTS) }) { Text("Use contact names") }
+            }
+            Text("You can also rename any payee from its payment screen.", style = MaterialTheme.typography.bodySmall, color = Faint)
         }
 
         SectionLabel("Categories")

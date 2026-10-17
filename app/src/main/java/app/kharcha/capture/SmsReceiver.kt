@@ -29,8 +29,11 @@ class SmsReceiver : BroadcastReceiver() {
                     if (!SmsParser.isLikelyBankSender(sender)) continue
                     val body = parts.joinToString("") { it.messageBody.orEmpty() }
                     val receivedAt = parts.first().timestampMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
-                    val parsed = SmsParser.parse(sender, body, receivedAt) ?: continue
-                    repository.ingest(parsed)?.let { Notifications.showNewPayment(context, it) }
+                    when (val reading = SmsParser.inspect(sender, body, receivedAt)) {
+                        is SmsParser.Reading.Read -> repository.ingest(reading.parsed)?.let { Notifications.showNewPayment(context, it) }
+                        is SmsParser.Reading.Unreadable -> repository.recordUnread(sender, body, receivedAt, reading.amountPaise)
+                        SmsParser.Reading.Skipped -> Unit
+                    }
                 }
             } finally {
                 pending.finish()

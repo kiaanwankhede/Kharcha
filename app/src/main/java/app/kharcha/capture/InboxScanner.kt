@@ -35,10 +35,16 @@ class InboxScanner(private val context: Context, private val repository: Transac
                 checked++
                 val sender = it.getString(addressIndex).orEmpty()
                 if (SmsParser.isLikelyBankSender(sender)) {
-                    val parsed = SmsParser.parse(sender, it.getString(bodyIndex).orEmpty(), it.getLong(dateIndex))
-                    if (parsed != null) {
-                        if (repository.ingest(parsed) != null) found++
-                        parsed.accountLast4?.let { last4 -> accounts += (parsed.bank.orEmpty() + last4) }
+                    val body = it.getString(bodyIndex).orEmpty()
+                    val receivedAt = it.getLong(dateIndex)
+                    when (val reading = SmsParser.inspect(sender, body, receivedAt)) {
+                        is SmsParser.Reading.Read -> {
+                            val parsed = reading.parsed
+                            if (repository.ingest(parsed) != null) found++
+                            parsed.accountLast4?.let { last4 -> accounts += (parsed.bank.orEmpty() + last4) }
+                        }
+                        is SmsParser.Reading.Unreadable -> repository.recordUnread(sender, body, receivedAt, reading.amountPaise)
+                        SmsParser.Reading.Skipped -> Unit
                     }
                 }
                 if (checked % 50 == 0 || checked == total) {

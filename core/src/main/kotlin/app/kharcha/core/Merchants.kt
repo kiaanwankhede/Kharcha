@@ -225,6 +225,13 @@ object Merchants {
         return Resolved(name, key, null, isPerson = looksPersonal)
     }
 
+    /** The 10-digit mobile number behind a UPI ID like 9876543210@ybl, if it is one. */
+    fun phoneFromVpa(vpa: String?): String? {
+        val handle = vpa?.substringBefore('@') ?: return null
+        if (!PHONE_HANDLE.matches(handle)) return null
+        return handle.substringBefore('-').takeLast(10)
+    }
+
     fun keyOf(name: String): String = name.lowercase().filter { it.isLetterOrDigit() }
 
     /** "SWIGGY LIMITED" -> "Swiggy"; "ravi kumar" -> "Ravi Kumar". */

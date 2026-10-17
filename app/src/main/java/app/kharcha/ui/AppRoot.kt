@@ -17,6 +17,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,8 +60,11 @@ fun AppRoot(container: AppContainer, startWithOnboarding: Boolean, openReviewReq
                 container,
                 openReviewRequest = openReviewRequest,
                 openTransaction = { id -> nav.navigate("transaction/$id") },
-                openCategories = { nav.navigate("categories") },
+                openRoute = { route -> nav.navigate(route) },
             )
+        }
+        composable("unread") {
+            UnreadScreen(container, onBack = { nav.popBackStack() })
         }
         composable("categories") {
             CategoriesScreen(container, onBack = { nav.popBackStack() })
@@ -81,8 +88,9 @@ private fun MainScreen(
     container: AppContainer,
     openReviewRequest: Int,
     openTransaction: (Long) -> Unit,
-    openCategories: () -> Unit,
+    openRoute: (String) -> Unit,
 ) {
+    val openCategories = { openRoute("categories") }
     val repository = container.repository
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     var categoryFilterId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -98,6 +106,16 @@ private fun MainScreen(
     val pending = remember(all) { all.filter { it.status == app.kharcha.core.ReviewStatus.PENDING } }
     val ignored = remember(all) { all.filter { it.status == app.kharcha.core.ReviewStatus.IGNORED } }
     val usage = remember(reviewed) { mostUsedCategories(reviewed) }
+    val byId = remember(all) { all.associateBy { it.id } }
+    val unread by repository.unread.collectAsStateWithLifecycle(initialValue = emptyList())
+    val snackbar = remember { SnackbarHostState() }
+    val showUndo: (String, suspend () -> Unit) -> Unit = { message, undo ->
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) undo()
+        }
+    }
 
     LaunchedEffect(openReviewRequest) {
         if (openReviewRequest > 0) tab = Tab.REVIEW
@@ -105,6 +123,7 @@ private fun MainScreen(
 
     Scaffold(
         containerColor = Paper,
+        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             if (tab == Tab.HOME || tab == Tab.TRANSACTIONS) {
                 ExtendedFloatingActionButton(
@@ -146,6 +165,7 @@ private fun MainScreen(
                 transactions = reviewed,
                 catalog = catalog,
                 pendingCount = pending.size,
+                pendingPaise = pending.filter { it.direction == app.kharcha.core.Direction.DEBIT }.sumOf { it.amountPaise },
                 monthlyLimitPaise = limit,
                 onOpenReview = { tab = Tab.REVIEW },
                 onCategory = { category ->
@@ -155,7 +175,17 @@ private fun MainScreen(
                 onTransaction = openTransaction,
                 modifier = modifier,
             )
-            Tab.REVIEW -> ReviewScreen(container, pending, catalog, usage, modifier)
+            Tab.REVIEW -> ReviewScreen(
+                container = container,
+                pending = pending,
+                catalog = catalog,
+                usage = usage,
+                lookup = { byId[it] },
+                unreadCount = unread.size,
+                onOpenUnread = { openRoute("unread") },
+                onUndoable = showUndo,
+                modifier = modifier,
+            )
             Tab.TRANSACTIONS -> TransactionsScreen(
                 transactions = reviewed,
                 ignored = ignored,

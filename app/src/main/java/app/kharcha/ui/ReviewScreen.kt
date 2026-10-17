@@ -67,6 +67,11 @@ fun ReviewScreen(
     pending: List<Transaction>,
     catalog: CategoryCatalog,
     usage: List<Category>,
+    lookup: (Long) -> Transaction?,
+    unreadCount: Int,
+    onOpenUnread: () -> Unit,
+    /** Shows a message with an Undo action that runs [undo]. */
+    onUndoable: (message: String, undo: suspend () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val repository = container.repository
@@ -106,6 +111,17 @@ fun ReviewScreen(
                     },
                     color = Muted,
                 )
+            }
+        }
+        if (unreadCount > 0) {
+            item {
+                Panel(Modifier.clickable(onClick = onOpenUnread), color = WarmTint) {
+                    Text(
+                        "📭  $unreadCount bank message${if (unreadCount == 1) "" else "s"} we couldn’t read",
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text("They mention money but in a format the app doesn’t know yet. Tap to add them yourself.", color = Muted)
+                }
             }
         }
         if (pending.isNotEmpty()) {
@@ -170,10 +186,20 @@ fun ReviewScreen(
                     t = t,
                     catalog = catalog,
                     quickPicks = usage,
+                    twin = t.possibleDuplicateOf?.let(lookup),
                     onReview = { category, remember, note ->
                         scope.launch { repository.review(t.id, category, remember, note) }
+                        onUndoable("Reviewed ${t.merchant}") { repository.sendBackToReview(t.id) }
                     },
-                    onIgnore = { scope.launch { repository.ignore(t.id) } },
+                    onIgnore = {
+                        scope.launch { repository.ignore(t.id) }
+                        onUndoable("Ignored ${t.merchant}") { repository.sendBackToReview(t.id) }
+                    },
+                    onConfirmDuplicate = {
+                        scope.launch { repository.confirmDuplicate(t.id) }
+                        onUndoable("Ignored as a duplicate") { repository.sendBackToReview(t.id) }
+                    },
+                    onNotDuplicate = { scope.launch { repository.notDuplicate(t.id) } },
                     onCreateCategory = { label, emoji, parent, remember, note ->
                         scope.launch {
                             val created = repository.saveCategory(Category.custom(label, emoji, parent))
@@ -209,6 +235,7 @@ fun ReviewScreen(
                     confirmAcceptAll = false
                     val ids = shown.map { it.id }
                     scope.launch { ids.forEach { repository.accept(it) } }
+                    onUndoable("Accepted ${ids.size} payments") { ids.forEach { repository.sendBackToReview(it) } }
                 }) { Text("Accept all") }
             },
             dismissButton = { TextButton(onClick = { confirmAcceptAll = false }) { Text("Cancel") } },
@@ -243,8 +270,11 @@ private fun ReviewCard(
     t: Transaction,
     catalog: CategoryCatalog,
     quickPicks: List<Category>,
+    twin: Transaction?,
     onReview: (Category, Boolean, String?) -> Unit,
     onIgnore: () -> Unit,
+    onConfirmDuplicate: () -> Unit,
+    onNotDuplicate: () -> Unit,
     onCreateCategory: (label: String, emoji: String, parent: Category, remember: Boolean, note: String?) -> Unit,
 ) {
     val brand = remember(t.id) { Merchants.brandOf(t) }
@@ -279,6 +309,35 @@ private fun ReviewCard(
             )
         }
 
+        if (twin != null) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(WarmTint)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Possible duplicate", fontWeight = FontWeight.Bold, color = Rust)
+                Text(
+                    "Same amount as ${twin.merchant} at ${Instant.ofEpochMilli(twin.timestampMillis).atZone(Zone).format(timeFormat)}" +
+                        " (${if (twin.source.name == "NOTIFICATION") "app notification" else "bank SMS"}). Is this the same payment?",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Muted,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onConfirmDuplicate) { Text("Same — ignore this") }
+                    TextButton(onClick = onNotDuplicate) { Text("Different payment") }
+                }
+            }
+        }
+        if (t.direction == Direction.CREDIT) {
+            Text(
+                "Money in. File it under a spending category (e.g. Food delivery) if it’s a refund: it will lower that category instead of counting as income.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Blue,
+            )
+        }
         Text(
             if (showMessage) "Hide original message" else "Show original message",
             Modifier.clickable { showMessage = !showMessage },

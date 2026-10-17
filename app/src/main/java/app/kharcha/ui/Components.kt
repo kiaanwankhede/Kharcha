@@ -89,7 +89,13 @@ fun TransactionRow(t: Transaction, onClick: () -> Unit) {
     ) {
         Column(Modifier.weight(1f)) {
             Text(t.merchant, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${t.category.emoji} ${t.category.label}", style = MaterialTheme.typography.bodySmall, color = Faint)
+            Text(
+                if (t.isSplit) "✂️ Split · ${t.splits.joinToString(", ") { it.category.label }}" else "${t.category.emoji} ${t.category.label}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Faint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         Spacer(Modifier.width(12.dp))
         Text(

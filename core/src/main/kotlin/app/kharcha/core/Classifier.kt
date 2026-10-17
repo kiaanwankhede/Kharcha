@@ -5,7 +5,11 @@ package app.kharcha.core
  *
  * [rules] maps a merchant key to the category the user chose for it; a user's choice always wins.
  */
-class Classifier(private val rules: Map<String, Category> = emptyMap()) {
+class Classifier(
+    private val rules: Map<String, Category> = emptyMap(),
+    /** Merchant key -> the name the user gave that payee (rename / merge). */
+    private val payeeNames: Map<String, String> = emptyMap(),
+) {
 
     private val keywordCategories = listOf(
         Regex("""\brecharge|prepaid|postpaid""", RegexOption.IGNORE_CASE) to Category.MOBILE,
@@ -39,8 +43,9 @@ class Classifier(private val rules: Map<String, Category> = emptyMap()) {
     )
 
     fun classify(parsed: ParsedTransaction): Transaction {
-        val resolved = Merchants.resolve(parsed.counterparty, parsed.vpa)
-        val category = rules[resolved.key] ?: defaultCategory(parsed, resolved)
+        val detected = Merchants.resolve(parsed.counterparty, parsed.vpa)
+        val resolved = payeeNames[detected.key]?.let { detected.copy(name = it, key = Merchants.keyOf(it)) } ?: detected
+        val category = rules[resolved.key] ?: rules[detected.key] ?: defaultCategory(parsed, resolved)
         return Transaction(
             amountPaise = parsed.amountPaise,
             direction = parsed.direction,

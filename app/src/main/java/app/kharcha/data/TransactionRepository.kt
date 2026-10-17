@@ -7,6 +7,7 @@ import app.kharcha.core.Classifier
 import app.kharcha.core.Deduplicator
 import app.kharcha.core.Direction
 import app.kharcha.core.Merchants
+import app.kharcha.core.Refunds
 import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
 import app.kharcha.core.ParsedTransaction
@@ -17,10 +18,20 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-class TransactionRepository(private val db: KharchaDatabase, private val prefs: Prefs) {
+/**
+ * [contactName] looks up a phone number in the user's contacts (null without permission or no match),
+ * so "UPI ··3210" can show as "Mom".
+ */
+class TransactionRepository(
+    private val db: KharchaDatabase,
+    private val prefs: Prefs,
+    private val contactName: (String) -> String? = { null },
+) {
     private val dao = db.transactions()
     private val rules = db.rules()
     private val customCategories = db.customCategories()
+    private val unreadMessages = db.unreadMessages()
+    private val payeeNames = db.payeeNames()
 
     // SMS and notifications for the same payment can arrive at the same moment; ingest one at a time
     // so the duplicate check always sees the other record.
@@ -43,10 +54,27 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
         entity?.toCore(catalog)
     }
 
-    /** Saves a parsed message, merging it into an existing record when it is the same payment. Returns the new record, or null if it was merged. */
+    val unread: Flow<List<UnreadMessageEntity>> = unreadMessages.observeOpen()
+
+    /**
+     * Saves a parsed message, merging it into an existing record when it is the same payment, and
+     * flagging it when it only looks like one. Returns the new record, or null if it was merged.
+     */
     suspend fun ingest(parsed: ParsedTransaction): Transaction? = ingestLock.withLock {
         val catalog = currentCatalog()
-        val incoming = Classifier(currentRules(catalog)).classify(parsed)
+        val counterparty = parsed.counterparty
+        val named = if (counterparty == null || counterparty.contains('@')) {
+            Merchants.phoneFromVpa(parsed.vpa)?.let(contactName)?.let { parsed.copy(counterparty = it) } ?: parsed
+        } else {
+            parsed
+        }
+        val classified = Classifier(currentRules(catalog), currentPayeeNames()).classify(named)
+        val incoming = if (classified.category.id == Category.REFUNDS.id) {
+            val history = dao.findSince(classified.timestampMillis - Refunds.LOOKBACK_MILLIS).map { it.toCore(catalog) }
+            Refunds.categorise(classified, history)
+        } else {
+            classified
+        }
         val candidates = buildList {
             incoming.reference?.let { addAll(dao.findByReference(it)) }
             addAll(
@@ -65,8 +93,106 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
             if (merged != match) dao.update(merged.toEntity())
             null
         } else {
-            incoming.copy(id = dao.insert(incoming.toEntity()))
+            val suspects = dao.findNear(
+                incoming.amountPaise,
+                incoming.direction.name,
+                incoming.timestampMillis - Deduplicator.SUSPECT_WINDOW_MILLIS,
+                incoming.timestampMillis + Deduplicator.SUSPECT_WINDOW_MILLIS,
+            ).map { it.toCore(catalog) }
+            val twin = suspects.firstOrNull { it.status != ReviewStatus.IGNORED && Deduplicator.isPossibleDuplicate(it, incoming) }
+            val saved = incoming.copy(possibleDuplicateOf = twin?.id)
+            saved.copy(id = dao.insert(saved.toEntity()))
         }
+    }
+
+    /** Keeps a bank message the parser could not read, so the user can add it by hand. */
+    suspend fun recordUnread(sender: String, body: String, receivedAt: Long, amountPaise: Long?) {
+        unreadMessages.insert(UnreadMessageEntity(sender = sender, body = body, receivedAt = receivedAt, amountPaise = amountPaise, dismissed = false))
+    }
+
+    suspend fun dismissUnread(id: Long) = unreadMessages.dismiss(id)
+
+    /** Adds a payment the user read out of a message the parser could not understand. */
+    suspend fun addFromMessage(
+        message: UnreadMessageEntity,
+        amountPaise: Long,
+        direction: Direction,
+        payee: String,
+        category: Category,
+    ) {
+        val name = Merchants.tidy(payee).ifEmpty { "Unknown" }
+        dao.insert(
+            Transaction(
+                amountPaise = amountPaise,
+                direction = direction,
+                timestampMillis = message.receivedAt,
+                merchant = name,
+                merchantKey = Merchants.keyOf(name),
+                category = category,
+                source = Source.SMS,
+                rawText = message.body,
+                status = ReviewStatus.REVIEWED,
+            ).toEntity(),
+        )
+        unreadMessages.dismiss(message.id)
+    }
+
+    /** "Yes, it's a copy": the newer record is ignored. */
+    suspend fun confirmDuplicate(id: Long) {
+        dao.clearDuplicateFlag(id)
+        dao.setStatus(id, ReviewStatus.IGNORED.name)
+    }
+
+    /** "No, it's a separate payment". */
+    suspend fun notDuplicate(id: Long) = dao.clearDuplicateFlag(id)
+
+    /**
+     * Renames a payee everywhere, including future payments; renaming to an existing payee's name
+     * merges the two. Merchant rules move with the name.
+     */
+    suspend fun renamePayee(oldKey: String, newName: String) {
+        val name = newName.trim().ifEmpty { return }
+        val newKey = Merchants.keyOf(name)
+        if (newKey.isEmpty() || newKey == oldKey && dao.findByMerchantKey(oldKey).all { it.merchant == name }) return
+        payeeNames.upsert(PayeeNameEntity(oldKey, name))
+        // Names that pointed at the old one follow it, so renaming twice still works.
+        payeeNames.getAll().filter { Merchants.keyOf(it.name) == oldKey }.forEach { payeeNames.upsert(it.copy(name = name)) }
+        val rule = rules.getAll().firstOrNull { it.merchantKey == oldKey }
+        if (rule != null && rules.getAll().none { it.merchantKey == newKey }) rules.upsert(MerchantRuleEntity(newKey, rule.category))
+        dao.renamePayee(oldKey, newKey, name)
+    }
+
+    /** Re-labels past UPI transfers to phone numbers with names from the user's contacts. Returns how many changed. */
+    suspend fun applyContactNames(): Int {
+        var changed = 0
+        dao.getAll()
+            .filter { it.merchant.startsWith("UPI ··") }
+            .groupBy { it.merchantKey }
+            .forEach { (key, items) ->
+                val phone = items.firstNotNullOfOrNull { Merchants.phoneFromVpa(it.vpa) } ?: return@forEach
+                val name = contactName(phone) ?: return@forEach
+                renamePayee(key, name)
+                changed += items.size
+            }
+        return changed
+    }
+
+    /** Splits a payment across categories; an empty list removes the split. */
+    suspend fun setSplits(id: Long, parts: List<app.kharcha.core.SplitPart>) {
+        val existing = dao.get(id) ?: return
+        dao.update(existing.copy(splitsJson = app.kharcha.core.SplitCodec.encode(parts)))
+    }
+
+    /** Fixes the amount or date of a payment. A changed amount removes any split. */
+    suspend fun edit(id: Long, amountPaise: Long, timestampMillis: Long) {
+        val existing = dao.get(id) ?: return
+        dao.update(
+            existing.copy(
+                amountPaise = amountPaise,
+                timestampMillis = timestampMillis,
+                splitsJson = if (amountPaise == existing.amountPaise) existing.splitsJson else null,
+            ),
+        )
     }
 
     /** Confirms a payment: it now counts everywhere. */
@@ -183,7 +309,7 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
             transactions = dao.getAll().map { it.toCore(catalog) },
             merchantRules = currentRules(catalog),
             monthlyLimitPaise = prefs.monthlyLimitPaise,
-            customCategories = catalog.all.filterNot { it.builtIn },
+            customCategories = catalog.groups.filterNot { it.builtIn } + catalog.all.filterNot { it.builtIn },
         )
     }
 
@@ -204,6 +330,8 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
     }
 
     suspend fun catalogNow(): CategoryCatalog = currentCatalog()
+
+    private suspend fun currentPayeeNames(): Map<String, String> = payeeNames.getAll().associate { it.merchantKey to it.name }
 
     private suspend fun currentCatalog() = CategoryCatalog(customCategories.getAll().map { it.toCore() })
 

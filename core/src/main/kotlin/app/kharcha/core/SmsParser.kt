@@ -116,6 +116,23 @@ object SmsParser {
         return bankFor(code) != null || BANKISH_SENDER.containsMatchIn(code)
     }
 
+    /** What happened to one message: read, deliberately skipped, or a bank message we could not read. */
+    sealed interface Reading {
+        data class Read(val parsed: ParsedTransaction) : Reading
+        data object Skipped : Reading
+        /** From a bank, mentions money, but the format is not understood. [amountPaise] is a best guess. */
+        data class Unreadable(val amountPaise: Long?) : Reading
+    }
+
+    fun inspect(sender: String, body: String, receivedAtMillis: Long): Reading {
+        if (!isLikelyBankSender(sender)) return Reading.Skipped
+        val text = body.replace(Regex("""\s+"""), " ").trim()
+        if (REJECT.containsMatchIn(text)) return Reading.Skipped
+        parse(sender, body, receivedAtMillis)?.let { return Reading.Read(it) }
+        val amount = CURRENCY_AMOUNT.find(text)?.let { Money.parsePaise(it.groupValues[1]) } ?: return Reading.Skipped
+        return Reading.Unreadable(amount)
+    }
+
     fun parse(sender: String, body: String, receivedAtMillis: Long): ParsedTransaction? {
         if (!isLikelyBankSender(sender)) return null
         val text = body.replace(Regex("""\s+"""), " ").trim()

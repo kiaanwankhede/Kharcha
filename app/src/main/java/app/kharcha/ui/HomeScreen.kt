@@ -40,6 +40,7 @@ fun HomeScreen(
     transactions: List<Transaction>,
     catalog: CategoryCatalog,
     pendingCount: Int,
+    pendingPaise: Long,
     monthlyLimitPaise: Long?,
     onOpenReview: () -> Unit,
     onCategory: (Category) -> Unit,
@@ -95,6 +96,14 @@ fun HomeScreen(
                     else -> "spent · same as last month at this point"
                 }
                 Text(changeText, color = if ((change ?: 0) > 0) Rust else Muted, fontWeight = FontWeight.SemiBold)
+                if (isCurrent && pendingPaise > 0) {
+                    Text(
+                        "+ ${Money.format(pendingPaise)} waiting for review, not included yet",
+                        Modifier.clickable(onClick = onOpenReview),
+                        color = Blue,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
         item {

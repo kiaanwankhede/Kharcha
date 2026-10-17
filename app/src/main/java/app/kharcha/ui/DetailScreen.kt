@@ -54,6 +54,9 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
     var rememberForMerchant by rememberSaveable(t?.id) { mutableStateOf(t?.let { Merchants.brandOf(it)?.isMultiBusiness } != true) }
     var note by rememberSaveable(t?.id) { mutableStateOf(t?.note.orEmpty()) }
+    var renaming by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var splitting by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -73,6 +76,23 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             color = if (txn.direction == Direction.CREDIT) Blue else Navy,
         )
         Text(if (txn.direction == Direction.CREDIT) "Money in" else "Money out", color = Muted)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { editing = true }) { Text("✎ Amount / date") }
+            TextButton(onClick = { renaming = true }) { Text("Rename payee") }
+            if (txn.direction == Direction.DEBIT) TextButton(onClick = { splitting = true }) { Text("Split") }
+        }
+        if (txn.isSplit) {
+            Panel(color = CoolTint) {
+                Text("Split across ${txn.splits.size} categories", fontWeight = FontWeight.Bold)
+                txn.splits.forEach { part ->
+                    Row {
+                        Text("${part.category.emoji}  ${part.category.label}", Modifier.weight(1f))
+                        Text(Money.format(part.amountPaise, showPaise = part.amountPaise % 100 != 0L))
+                    }
+                }
+                TextButton(onClick = { scope.launch { repository.setSplits(txn.id, emptyList()) } }) { Text("Remove split") }
+            }
+        }
 
         Panel(color = Sand) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -152,6 +172,38 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
 
         SectionLabel("Original message")
         Text(txn.rawText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Muted)
+
+        if (renaming) {
+            RenamePayeeDialog(
+                current = txn.merchant,
+                onDismiss = { renaming = false },
+                onSave = { name ->
+                    renaming = false
+                    scope.launch { repository.renamePayee(txn.merchantKey, name) }
+                },
+            )
+        }
+        if (editing) {
+            EditPaymentDialog(
+                t = txn,
+                onDismiss = { editing = false },
+                onSave = { amount, millis ->
+                    editing = false
+                    scope.launch { repository.edit(txn.id, amount, millis) }
+                },
+            )
+        }
+        if (splitting) {
+            SplitDialog(
+                t = txn,
+                catalog = catalog,
+                onDismiss = { splitting = false },
+                onSave = { parts ->
+                    splitting = false
+                    scope.launch { repository.setSplits(txn.id, parts) }
+                },
+            )
+        }
 
         if (creatingCategory) {
             CategoryEditorDialog(

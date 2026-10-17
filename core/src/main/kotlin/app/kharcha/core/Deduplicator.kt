@@ -19,6 +19,21 @@ object Deduplicator {
         return a.rawText == b.rawText && gap <= MATCH_WINDOW_MILLIS
     }
 
+    /** How far apart two records can be and still look like the same payment to a person. */
+    const val SUSPECT_WINDOW_MILLIS = 2 * 60 * 60 * 1000L
+
+    /**
+     * Not certain enough to merge, but worth asking: same amount and direction within two hours, either
+     * from different sources (a late bank SMS after an app notification) or to the same payee.
+     */
+    fun isPossibleDuplicate(a: Transaction, b: Transaction): Boolean {
+        if (a.id != 0L && a.id == b.id) return false
+        if (a.amountPaise != b.amountPaise || a.direction != b.direction) return false
+        if (a.reference != null && b.reference != null && a.reference != b.reference) return false
+        if (abs(a.timestampMillis - b.timestampMillis) > SUSPECT_WINDOW_MILLIS) return false
+        return a.source != b.source || a.merchantKey == b.merchantKey
+    }
+
     /**
      * Keeps the bank's facts (account, reference, balance) and the nicer name, whichever record has it.
      * [existing]'s id, note and any category the user set are preserved.

@@ -58,18 +58,20 @@ data class Insight(val kind: InsightKind, val title: String, val body: String)
  */
 class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
 
-    fun summary(all: List<Transaction>, today: LocalDate, monthlyLimitPaise: Long? = null): MonthSummary {
+    fun summary(transactions: List<Transaction>, today: LocalDate, monthlyLimitPaise: Long? = null): MonthSummary {
+        val all = expand(transactions)
         val month = YearMonth.from(today)
         val thisMonth = all.filter { month.contains(it) }
         val spends = thisMonth.filter { it.isSpend }
+        val netByCategory = netSpendByCategory(thisMonth)
         val unlogged = unloggedCashPaise(thisMonth)
         val untrackedWallet = untrackedWalletPaise(thisMonth)
-        val spent = spends.sumOf { it.amountPaise } + unlogged + untrackedWallet
+        val spent = netByCategory.values.sum() + unlogged + untrackedWallet
 
         val previous = month.minusMonths(1)
         val lastDay = minOf(today.dayOfMonth, previous.lengthOfMonth())
         val previousRange = all.filter { previous.contains(it) && date(it).dayOfMonth <= lastDay }
-        val previousSamePoint = previousRange.filter { it.isSpend }.sumOf { it.amountPaise } + untrackedPaise(previousRange)
+        val previousSamePoint = netSpendByCategory(previousRange).values.sum() + untrackedPaise(previousRange)
 
         val daysLeft = month.lengthOfMonth() - today.dayOfMonth + 1
         val safeToSpend = monthlyLimitPaise?.let { maxOf(0L, (it - spent) / daysLeft) }
@@ -80,7 +82,7 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
             receivedPaise = thisMonth.filter { it.direction == Direction.CREDIT && it.category.kind == Kind.INCOME }.sumOf { it.amountPaise },
             previousSamePointPaise = previousSamePoint,
             byCategory = (
-                spends.groupBy { it.category }.map { (category, items) -> CategoryTotal(category, items.sumOf { it.amountPaise }) } +
+                netByCategory.map { (category, net) -> CategoryTotal(category, net) } +
                     listOfNotNull(
                         unlogged.takeIf { it > 0 }?.let { CategoryTotal(Category.UNLOGGED_CASH, it) },
                         untrackedWallet.takeIf { it > 0 }?.let { CategoryTotal(Category.UNTRACKED_WALLET, it) },
@@ -97,7 +99,8 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
         )
     }
 
-    fun recurring(all: List<Transaction>, today: LocalDate): List<RecurringPayment> {
+    fun recurring(transactions: List<Transaction>, today: LocalDate): List<RecurringPayment> {
+        val all = expand(transactions)
         val since = today.minusDays(100)
         return all.asSequence()
             .filter { it.isSpend && it.category.parentId != Category.G_PEOPLE.id && date(it) >= since && date(it) <= today }
@@ -116,7 +119,8 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
             .sortedBy { it.nextExpected }
     }
 
-    fun insights(all: List<Transaction>, today: LocalDate, monthlyLimitPaise: Long? = null): List<Insight> {
+    fun insights(transactions: List<Transaction>, today: LocalDate, monthlyLimitPaise: Long? = null): List<Insight> {
+        val all = expand(transactions)
         val summary = summary(all, today, monthlyLimitPaise)
         val result = mutableListOf<Insight>()
         val monthName = summary.month.month.displayName()
@@ -274,20 +278,20 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
 }
 
 /** Total spend for each of the [months] months ending with [today]'s month, oldest first. */
-fun InsightsEngine.monthlyTotals(all: List<Transaction>, today: LocalDate, months: Int = 6): List<Pair<YearMonth, Long>> {
+fun InsightsEngine.monthlyTotals(transactions: List<Transaction>, today: LocalDate, months: Int = 6): List<Pair<YearMonth, Long>> {
     val end = YearMonth.from(today)
-    val totals = all.groupBy { YearMonth.from(dateOf(it)) }.mapValues { (_, v) ->
-        v.filter { it.isSpend }.sumOf { it.amountPaise } + untrackedPaise(v)
+    val totals = expand(transactions).groupBy { YearMonth.from(dateOf(it)) }.mapValues { (_, v) ->
+        netSpendByCategory(v).values.sum() + untrackedPaise(v)
     }
     return (months - 1 downTo 0).map { back -> end.minusMonths(back.toLong()).let { it to (totals[it] ?: 0L) } }
 }
 
 /** Spend on each day of [month] (up to [today] for the current month), first day first. */
-fun InsightsEngine.dailyTotals(all: List<Transaction>, month: YearMonth, today: LocalDate): List<Pair<LocalDate, Long>> {
+fun InsightsEngine.dailyTotals(transactions: List<Transaction>, month: YearMonth, today: LocalDate): List<Pair<LocalDate, Long>> {
     val lastDay = if (YearMonth.from(today) == month) today.dayOfMonth else month.lengthOfMonth()
-    val byDay = all.filter { it.isSpend && YearMonth.from(dateOf(it)) == month }
+    val byDay = expand(transactions).filter { YearMonth.from(dateOf(it)) == month }
         .groupBy { dateOf(it) }
-        .mapValues { (_, v) -> v.sumOf { it.amountPaise } }
+        .mapValues { (_, v) -> netSpendByCategory(v).values.sum() }
     return (1..lastDay).map { day -> month.atDay(day).let { it to (byDay[it] ?: 0L) } }
 }
 
@@ -307,3 +311,17 @@ fun untrackedWalletPaise(transactions: List<Transaction>): Long {
 
 /** Money that left the bank for cash or a wallet and has not been matched by tracked spends. */
 fun untrackedPaise(transactions: List<Transaction>): Long = unloggedCashPaise(transactions) + untrackedWalletPaise(transactions)
+
+/** Splits counted as their parts. */
+fun expand(transactions: List<Transaction>): List<Transaction> =
+    if (transactions.none { it.isSplit }) transactions else transactions.flatMap { it.parts() }
+
+/**
+ * Spending per category with refunds taken off (never below zero per category), so a ₹500 refund
+ * from Swiggy lowers Food delivery instead of counting as income.
+ */
+fun netSpendByCategory(transactions: List<Transaction>): Map<Category, Long> {
+    val spent = transactions.filter { it.isSpend }.groupBy { it.category }.mapValues { (_, v) -> v.sumOf { it.amountPaise } }
+    val refunded = transactions.filter { it.isRefund }.groupBy { it.category }.mapValues { (_, v) -> v.sumOf { it.amountPaise } }
+    return spent.mapValues { (category, total) -> maxOf(0L, total - (refunded[category] ?: 0L)) }.filterValues { it > 0 }
+}

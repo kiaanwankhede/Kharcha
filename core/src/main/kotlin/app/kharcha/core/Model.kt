@@ -31,6 +31,10 @@ data class ParsedTransaction(
     val isWalletTopUp: Boolean = false,
 )
 
+/** One slice of a payment that was split across categories (an Amazon order: groceries + electronics). */
+@Serializable
+data class SplitPart(val amountPaise: Long, val category: Category, val note: String? = null)
+
 @Serializable
 data class Transaction(
     val id: Long = 0,
@@ -49,8 +53,25 @@ data class Transaction(
     val balancePaise: Long? = null,
     val note: String? = null,
     val status: ReviewStatus = ReviewStatus.REVIEWED,
+    /** Another payment this one looks like a copy of; the user decides during review. */
+    val possibleDuplicateOf: Long? = null,
+    /** When set, the payment counts as these parts instead of as one amount in [category]. */
+    val splits: List<SplitPart> = emptyList(),
 ) {
     val isSpend: Boolean get() = direction == Direction.DEBIT && category.countsAsSpend
+
+    /** Money back from a merchant, filed under a spending category: it reduces that category's spend. */
+    val isRefund: Boolean get() = direction == Direction.CREDIT && category.kind == Kind.SPENDING
+
+    val isSplit: Boolean get() = splits.isNotEmpty()
+
+    /** The payment as it counts in totals: itself, or one entry per split part. */
+    fun parts(): List<Transaction> =
+        if (splits.isEmpty()) {
+            listOf(this)
+        } else {
+            splits.map { copy(amountPaise = it.amountPaise, category = it.category, note = it.note ?: note, splits = emptyList()) }
+        }
 
     val isCashWithdrawal: Boolean get() = direction == Direction.DEBIT && category.id == Category.CASH.id
 
