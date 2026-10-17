@@ -33,6 +33,8 @@ data class MonthSummary(
     val safeToSpendTodayPaise: Long?,
     val cashWithdrawnPaise: Long = 0,
     val cashLoggedPaise: Long = 0,
+    val walletToppedUpPaise: Long = 0,
+    val walletSpentPaise: Long = 0,
 )
 
 enum class InsightKind { SUMMARY, SPIKE, DROP, RECURRING, UNUSUAL, HABIT }
@@ -50,12 +52,13 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
         val thisMonth = all.filter { month.contains(it) }
         val spends = thisMonth.filter { it.isSpend }
         val unlogged = unloggedCashPaise(thisMonth)
-        val spent = spends.sumOf { it.amountPaise } + unlogged
+        val untrackedWallet = untrackedWalletPaise(thisMonth)
+        val spent = spends.sumOf { it.amountPaise } + unlogged + untrackedWallet
 
         val previous = month.minusMonths(1)
         val lastDay = minOf(today.dayOfMonth, previous.lengthOfMonth())
         val previousRange = all.filter { previous.contains(it) && date(it).dayOfMonth <= lastDay }
-        val previousSamePoint = previousRange.filter { it.isSpend }.sumOf { it.amountPaise } + unloggedCashPaise(previousRange)
+        val previousSamePoint = previousRange.filter { it.isSpend }.sumOf { it.amountPaise } + untrackedPaise(previousRange)
 
         val daysLeft = month.lengthOfMonth() - today.dayOfMonth + 1
         val safeToSpend = monthlyLimitPaise?.let { maxOf(0L, (it - spent) / daysLeft) }
@@ -67,13 +70,18 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
             previousSamePointPaise = previousSamePoint,
             byCategory = (
                 spends.groupBy { it.category }.map { (category, items) -> CategoryTotal(category, items.sumOf { it.amountPaise }) } +
-                    listOfNotNull(unlogged.takeIf { it > 0 }?.let { CategoryTotal(Category.UNLOGGED_CASH, it) })
+                    listOfNotNull(
+                        unlogged.takeIf { it > 0 }?.let { CategoryTotal(Category.UNLOGGED_CASH, it) },
+                        untrackedWallet.takeIf { it > 0 }?.let { CategoryTotal(Category.UNTRACKED_WALLET, it) },
+                    )
                 ).sortedByDescending { it.spentPaise },
             topMerchants = merchantTotals(spends).take(5),
             changePercent = percentChange(previousSamePoint, spent),
             safeToSpendTodayPaise = safeToSpend,
             cashWithdrawnPaise = thisMonth.filter { it.isCashWithdrawal }.sumOf { it.amountPaise },
             cashLoggedPaise = thisMonth.filter { it.isLoggedCash }.sumOf { it.amountPaise },
+            walletToppedUpPaise = thisMonth.filter { it.isWalletTopUp }.sumOf { it.amountPaise },
+            walletSpentPaise = thisMonth.filter { it.isWalletSpend }.sumOf { it.amountPaise },
         )
     }
 
@@ -257,7 +265,7 @@ class InsightsEngine(private val zone: ZoneId = ZoneId.of("Asia/Kolkata")) {
 fun InsightsEngine.monthlyTotals(all: List<Transaction>, today: LocalDate, months: Int = 6): List<Pair<YearMonth, Long>> {
     val end = YearMonth.from(today)
     val totals = all.groupBy { YearMonth.from(dateOf(it)) }.mapValues { (_, v) ->
-        v.filter { it.isSpend }.sumOf { it.amountPaise } + unloggedCashPaise(v)
+        v.filter { it.isSpend }.sumOf { it.amountPaise } + untrackedPaise(v)
     }
     return (months - 1 downTo 0).map { back -> end.minusMonths(back.toLong()).let { it to (totals[it] ?: 0L) } }
 }
@@ -277,3 +285,13 @@ fun unloggedCashPaise(transactions: List<Transaction>): Long {
     val logged = transactions.filter { it.isLoggedCash }.sumOf { it.amountPaise }
     return maxOf(0L, withdrawn - logged)
 }
+
+/** Wallet / UPI Lite top-ups in [transactions] that have no tracked wallet payments against them. */
+fun untrackedWalletPaise(transactions: List<Transaction>): Long {
+    val toppedUp = transactions.filter { it.isWalletTopUp }.sumOf { it.amountPaise }
+    val spent = transactions.filter { it.isWalletSpend }.sumOf { it.amountPaise }
+    return maxOf(0L, toppedUp - spent)
+}
+
+/** Money that left the bank for cash or a wallet and has not been matched by tracked spends. */
+fun untrackedPaise(transactions: List<Transaction>): Long = unloggedCashPaise(transactions) + untrackedWalletPaise(transactions)

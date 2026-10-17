@@ -159,7 +159,7 @@ private fun ReviewCard(
     var showMessage by remember(t.id) { mutableStateOf(false) }
     var moreOpen by remember(t.id) { mutableStateOf(false) }
     var creating by remember(t.id) { mutableStateOf(false) }
-    val chips = remember(t.id, quickPicks) { (listOf(t.category) + quickPicks).distinctBy { it.id }.take(6) }
+    val chips = remember(t.id, quickPicks) { (listOf(t.category) + quickPicks + Category.WALLET).distinctBy { it.id }.take(7) }
     val time = Instant.ofEpochMilli(t.timestampMillis).atZone(Zone).format(timeFormat)
     val via = listOfNotNull(t.bank, t.accountLast4?.let { "··$it" }).joinToString(" ").ifEmpty {
         if (t.source.name == "NOTIFICATION") "UPI app" else "Bank SMS"
@@ -228,6 +228,19 @@ private fun ReviewCard(
         }
         if (chips.none { it.id == category.id }) {
             Text("Selected: ${category.emoji} ${category.label}", style = MaterialTheme.typography.bodySmall, color = Muted)
+        }
+        when (category.id) {
+            Category.WALLET.id -> Text(
+                "Money moved to your wallet or UPI Lite: not counted as spending. What you pay from the wallet is.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Blue,
+            )
+            Category.CASH.id -> Text(
+                "ATM cash: not counted as spending by itself. Log cash spends with ＋ Add cash; anything not logged still counts.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Blue,
+            )
+            Category.TRANSFER.id -> Text("Between your own accounts: not counted as spending.", style = MaterialTheme.typography.bodySmall, color = Blue)
         }
 
         OutlinedTextField(

@@ -138,3 +138,51 @@ class CashTest {
         assertEquals(0L, days[0].second)
     }
 }
+
+class WalletTest {
+    private val zone = ZoneId.of("Asia/Kolkata")
+    private val today = LocalDate.of(2026, 10, 17)
+    private val t0 = LocalDate.of(2026, 10, 2).atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
+
+    @Test
+    fun `bank to wallet top-ups are recognised and not counted as spending`() {
+        val samples = listOf(
+            "Sent Rs.2000.00 From HDFC Bank A/C *1234 To Add Money to Paytm Wallet On 02/10/26 Ref 628941075400",
+            "Rs.2000.00 debited from A/c XX1234 to VPA paytm-addmoney@paytm on 02-10-26 Ref 628941075401",
+            "Rs 500.00 debited from A/c XX1234 for UPI Lite top-up on 02-10-26. UPI Ref 628941075402",
+            "INR 1000.00 debited A/c no. XX1234 02-10-26 UPI/P2M/628941075403/Amazon Pay Balance",
+        )
+        samples.forEach { body ->
+            val t = Classifier().classify(SmsParser.parse("AX-HDFCBK", body, t0)!!)
+            assertEquals(Category.WALLET, t.category, body)
+            assertTrue(!t.isSpend, body)
+        }
+        // Paying out of the wallet is a spend, not a top-up.
+        val fromWallet = Classifier().classify(SmsParser.parse("VM-PAYTMB", "Rs.450 paid from your Paytm Wallet to Swiggy on 02-10-26. Txn ID 628941075404", t0)!!)
+        assertEquals(Category.FOOD, fromWallet.category)
+
+        // The wallet app's own "money added" notification is skipped; the bank SMS records it.
+        assertEquals(null, NotificationParser.parse("net.one97.paytm", "₹2,000 added to Paytm Wallet", null, t0))
+    }
+
+    @Test
+    fun `wallet money counts once, whether or not wallet payments are captured`() {
+        val engine = InsightsEngine(zone)
+        val topUp = Classifier().classify(SmsParser.parse("AX-HDFCBK", "Rs.2000.00 debited from A/c XX1234 to VPA paytm-addmoney@paytm on 02-10-26 Ref 628941075401", t0)!!)
+            .copy(status = ReviewStatus.REVIEWED)
+        val walletSpend = Classifier().classify(NotificationParser.parse("net.one97.paytm", "Paid ₹450 to Swiggy", null, t0 + 3_600_000)!!)
+            .copy(status = ReviewStatus.REVIEWED)
+
+        // Only the top-up seen: all ₹2,000 counts as untracked wallet spending.
+        val onlyTopUp = engine.summary(listOf(topUp), today)
+        assertEquals(200000L, onlyTopUp.spentPaise)
+
+        // Top-up plus a ₹450 wallet payment: still ₹2,000 in total, ₹450 of it as Food. Not ₹2,450.
+        val both = engine.summary(listOf(topUp, walletSpend), today)
+        assertEquals(200000L, both.spentPaise)
+        assertTrue(both.byCategory.any { it.category == Category.FOOD && it.spentPaise == 45000L })
+        assertTrue(both.byCategory.any { it.category == Category.UNTRACKED_WALLET && it.spentPaise == 155000L })
+        assertEquals(200000L, both.walletToppedUpPaise)
+        assertEquals(45000L, both.walletSpentPaise)
+    }
+}

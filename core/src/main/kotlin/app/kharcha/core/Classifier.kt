@@ -43,6 +43,7 @@ class Classifier(private val rules: Map<String, Category> = emptyMap()) {
         parsed.isOwnTransfer -> Category.TRANSFER
         parsed.direction == Direction.CREDIT -> Category.INCOME
         parsed.isCashWithdrawal -> Category.CASH
+        parsed.isWalletTopUp -> Category.WALLET
         resolved.brand != null -> resolved.brand.category
         else -> keywordCategories.firstOrNull { (pattern, _) ->
             pattern.containsMatchIn(listOfNotNull(parsed.counterparty, parsed.vpa).joinToString(" "))

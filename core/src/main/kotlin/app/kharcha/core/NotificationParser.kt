@@ -31,7 +31,8 @@ object NotificationParser {
     private val CREDIT_NO_PAYER = Regex("""received\s+$AMOUNT|$AMOUNT\s+received""", RegexOption.IGNORE_CASE)
 
     private val REJECT = Regex(
-        """request|requested|failed|pending|declined|reminder|cashback|reward|offer|\bwon\b|scratch card|due\b|bill is""",
+        // Wallet / UPI Lite top-ups are recorded from the bank SMS; the app's own notification would double them.
+        """request|requested|failed|pending|declined|reminder|cashback|reward|offer|\bwon\b|scratch card|due\b|bill is|added to|add money|wallet top|upi lite (?:top|load|balance)|loaded""",
         RegexOption.IGNORE_CASE,
     )
 

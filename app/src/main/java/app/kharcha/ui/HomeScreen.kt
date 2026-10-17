@@ -146,6 +146,31 @@ fun HomeScreen(
                 }
             }
         }
+        if (summary.walletToppedUpPaise > 0) {
+            item {
+                Panel(color = Sand) {
+                    Text("👛 Wallet & UPI Lite this month", fontWeight = FontWeight.Bold)
+                    Row {
+                        Text("Moved from bank to wallet", Modifier.weight(1f), color = Muted)
+                        Text(Money.format(summary.walletToppedUpPaise))
+                    }
+                    Row {
+                        Text("Spent from wallet (tracked)", Modifier.weight(1f), color = Muted)
+                        Text(Money.format(summary.walletSpentPaise))
+                    }
+                    Text(
+                        "Top-ups aren’t counted as spending, only what you spend from the wallet, so nothing is counted twice." +
+                            if (summary.walletToppedUpPaise > summary.walletSpentPaise) {
+                                " ${Money.format(summary.walletToppedUpPaise - summary.walletSpentPaise)} has no tracked wallet payments yet and counts as “Wallet (spends not tracked)”."
+                            } else {
+                                ""
+                            },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Muted,
+                    )
+                }
+            }
+        }
         summary.safeToSpendTodayPaise?.let { safe ->
             item {
                 Panel(color = Navy) {
@@ -166,7 +191,7 @@ fun HomeScreen(
             val top = summary.byCategory.first().spentPaise.toFloat()
             items(summary.byCategory, key = { it.category.id }) { total ->
                 val share = if (summary.spentPaise > 0) (total.spentPaise * 100 / summary.spentPaise) else 0L
-                val clickable = total.category != Category.UNLOGGED_CASH
+                val clickable = total.category != Category.UNLOGGED_CASH && total.category != Category.UNTRACKED_WALLET
                 Panel(if (clickable) Modifier.clickable { onCategory(total.category) } else Modifier) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         EmojiBadge(total.category.emoji, size = 36)

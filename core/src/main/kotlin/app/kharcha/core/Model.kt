@@ -50,13 +50,23 @@ data class Category(
 
         /** Only appears in summaries, for withdrawn cash that has no logged spends against it. */
         val UNLOGGED_CASH = Category("UNLOGGED_CASH", "Cash (not logged)", "💵")
+
+        /**
+         * Money moved from a bank account into a wallet or UPI Lite. Like an ATM withdrawal it is not
+         * spending by itself: payments made from the wallet count instead, and top-ups with no tracked
+         * wallet payments against them count as [UNTRACKED_WALLET].
+         */
+        val WALLET = Category("WALLET", "Wallet top-up", "👛", countsAsSpend = false)
+
+        /** Only appears in summaries, for wallet money whose payments were not captured. */
+        val UNTRACKED_WALLET = Category("UNTRACKED_WALLET", "Wallet (spends not tracked)", "👛")
         val TRANSFER = Category("TRANSFER", "Own transfers", "🔄", countsAsSpend = false)
         val INCOME = Category("INCOME", "Money in", "💰", countsAsSpend = false)
         val OTHER = Category("OTHER", "Other", "🏷️")
 
         val BUILT_IN: List<Category> = listOf(
             FOOD, GROCERIES, SHOPPING, TRAVEL, FUEL, BILLS, RECHARGE, ENTERTAINMENT, SUBSCRIPTIONS, HEALTH,
-            EDUCATION, RENT, INVESTMENT, EMI, INSURANCE, PEOPLE, CASH, TRANSFER, INCOME, OTHER,
+            EDUCATION, RENT, INVESTMENT, EMI, INSURANCE, PEOPLE, CASH, WALLET, TRANSFER, INCOME, OTHER,
         )
 
         fun custom(label: String, emoji: String, countsAsSpend: Boolean = true): Category = Category(
@@ -94,6 +104,7 @@ data class ParsedTransaction(
     val balancePaise: Long? = null,
     val isOwnTransfer: Boolean = false,
     val isCashWithdrawal: Boolean = false,
+    val isWalletTopUp: Boolean = false,
 )
 
 @Serializable
@@ -120,4 +131,12 @@ data class Transaction(
     val isCashWithdrawal: Boolean get() = direction == Direction.DEBIT && category.id == Category.CASH.id
 
     val isLoggedCash: Boolean get() = source == Source.MANUAL && isSpend
+
+    val isWalletTopUp: Boolean get() = direction == Direction.DEBIT && category.id == Category.WALLET.id
+
+    /**
+     * A payment seen only as an app notification, with no bank SMS behind it: it was paid from a wallet
+     * or UPI Lite balance, so it is spending of money that was topped up earlier.
+     */
+    val isWalletSpend: Boolean get() = source == Source.NOTIFICATION && isSpend
 }

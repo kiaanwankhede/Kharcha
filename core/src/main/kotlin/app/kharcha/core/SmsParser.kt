@@ -79,6 +79,19 @@ object SmsParser {
         ).joinToString("|"),
         RegexOption.IGNORE_CASE,
     )
+    private val WALLET_TOP_UP = Regex(
+        listOf(
+            """add(?:ed)?\s*money""", """load(?:ed)?\s*money""", """\bwallet\b""", """upi\s*lite""", """\blite\s*(?:top|load)""",
+            """amazon\s*pay\s*balance""", """mobikwik""", """freecharge""", """ola\s*money""", """paytm\s*(?:wallet|balance)""",
+            """add-?money@""", """addmoney""", """paytmwallet""", """phonepewallet""", """amazonpaywallet""",
+        ).joinToString("|"),
+        RegexOption.IGNORE_CASE,
+    )
+    // "Paid from your Paytm wallet" is spending out of the wallet, not money going into it.
+    private val PAID_FROM_WALLET = Regex(
+        """(?:from|using|via)\s+(?:your\s+)?(?:paytm\s+|amazon\s*pay\s+|phonepe\s+|mobikwik\s+)?(?:wallet|upi\s*lite)""",
+        RegexOption.IGNORE_CASE,
+    )
     private val CASH = Regex("""\batm\b|cash withdrawal|withdrawn at""", RegexOption.IGNORE_CASE)
 
     private val SENDER_PREFIX = Regex("""^[A-Z]{2}-""")
@@ -113,6 +126,7 @@ object SmsParser {
         val vpa = VPA.find(text)?.groupValues?.get(1)?.lowercase()
         val isOwnTransfer = OWN_TRANSFER.containsMatchIn(text)
         val isCash = direction == Direction.DEBIT && CASH.containsMatchIn(text)
+        val isWalletTopUp = direction == Direction.DEBIT && !isCash && WALLET_TOP_UP.containsMatchIn(text) && !PAID_FROM_WALLET.containsMatchIn(text)
 
         return ParsedTransaction(
             amountPaise = amount,
@@ -129,6 +143,7 @@ object SmsParser {
             balancePaise = balance(text),
             isOwnTransfer = isOwnTransfer,
             isCashWithdrawal = isCash,
+            isWalletTopUp = isWalletTopUp,
         )
     }
 
