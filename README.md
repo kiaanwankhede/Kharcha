@@ -27,6 +27,9 @@ and keeps your data.
 | **Home** | Day-by-day chart (tap a day to see its payments), 6-month trend, this month’s spend, change vs last month at the same point, safe-to-spend today (if you set a monthly limit), category breakdown. |
 | **Insights** | Monthly summary, category spikes with the merchant behind them, unusual payments, recurring payments and subscriptions, weekend vs weekday spending. Plain rules, computed on the phone. |
 | **Backup** | Encrypted (AES-256-GCM, key from your passphrase) and written nightly, while charging on Wi-Fi, to a file you choose — pick Google Drive in the file picker. Restore on a new phone with the file + passphrase. CSV export for Excel/Sheets. |
+| **Review** | New payments wait in Review until you confirm them; only reviewed ones count. Sure payments fold to one line (swipe right to accept, left to ignore, with undo); guesses and possible duplicates open up. End-of-day summary at 9 PM. |
+| **Trust** | Bank SMS the app can’t read are listed so nothing is silently lost. Refunds lower the category they came from. Same-amount payments within 2 hours are flagged as possible duplicates. Contact names for UPI phone numbers; rename/merge payees; split a payment; edit amount/date. |
+| **Plan** | Budgets for a group, subcategory or merchant with 80%/100% alerts; accounts & cards with latest balance and a low-balance alert; credit card statements with due-date reminders; upcoming bills and subscriptions for 30 days. |
 | **Privacy** | Only bank/UPI senders are parsed. Nothing is uploaded except your encrypted backup file. Optional fingerprint/screen-lock. |
 
 ## Project layout

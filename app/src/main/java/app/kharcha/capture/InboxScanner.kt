@@ -2,6 +2,7 @@ package app.kharcha.capture
 
 import android.content.Context
 import android.provider.Telephony
+import app.kharcha.core.CardBills
 import app.kharcha.core.SmsParser
 import app.kharcha.data.TransactionRepository
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +38,9 @@ class InboxScanner(private val context: Context, private val repository: Transac
                 if (SmsParser.isLikelyBankSender(sender)) {
                     val body = it.getString(bodyIndex).orEmpty()
                     val receivedAt = it.getLong(dateIndex)
-                    when (val reading = SmsParser.inspect(sender, body, receivedAt)) {
+                    val bill = CardBills.parse(sender, body, receivedAt)
+                    if (bill != null) repository.saveCardBill(bill)
+                    else when (val reading = SmsParser.inspect(sender, body, receivedAt)) {
                         is SmsParser.Reading.Read -> {
                             val parsed = reading.parsed
                             if (repository.ingest(parsed) != null) found++

@@ -11,6 +11,7 @@ import app.kharcha.data.PassphraseStore
 import app.kharcha.data.Prefs
 import app.kharcha.data.TransactionRepository
 import app.kharcha.notify.Notifications
+import app.kharcha.notify.BillReminderWorker
 import app.kharcha.notify.ReviewReminderWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +28,15 @@ class KharchaApplication : Application() {
         BackupWorker.schedule(this)
         Notifications.createChannels(this)
         ReviewReminderWorker.schedule(this)
+        BillReminderWorker.schedule(this)
+        container.repository.onBudgetStatus = { statuses ->
+            val month = java.time.YearMonth.now(java.time.ZoneId.of("Asia/Kolkata"))
+            statuses.forEach { status ->
+                if (container.prefs.firstTime("budget-${status.budget.id}-$month-${status.level}")) {
+                    Notifications.showBudgetAlert(this, status)
+                }
+            }
+        }
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { container.repository.migrateToCategoryTree() }
     }
 }

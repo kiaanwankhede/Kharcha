@@ -164,6 +164,9 @@ object SmsParser {
         )
     }
 
+    /** The bank name for a sender like "AX-HDFCBK-S", if it is a known bank. */
+    fun bankOf(sender: String): String? = senderCode(sender)?.let(::bankFor)
+
     private fun senderCode(sender: String): String? {
         val trimmed = sender.trim().uppercase()
         if (trimmed.isEmpty() || PHONE_SENDER.matches(trimmed)) return null

@@ -48,7 +48,7 @@ import app.kharcha.notify.Notifications
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier: Modifier = Modifier) {
+fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier: Modifier = Modifier, openRoute: (String) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = container.prefs
@@ -160,6 +160,16 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
                     prefs.reviewReminder = it
                 })
             }
+        }
+
+        SectionLabel("Plan")
+        Panel {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { openRoute("budgets") }) { Text("Budgets") }
+                OutlinedButton(onClick = { openRoute("upcoming") }) { Text("Bills") }
+                OutlinedButton(onClick = { openRoute("accounts") }) { Text("Accounts") }
+            }
+            OutlinedButton(onClick = { openRoute("unread") }) { Text("Messages we couldn’t read") }
         }
 
         SectionLabel("Payee names")

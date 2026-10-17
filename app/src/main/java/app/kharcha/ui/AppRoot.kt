@@ -66,6 +66,15 @@ fun AppRoot(container: AppContainer, startWithOnboarding: Boolean, openReviewReq
         composable("unread") {
             UnreadScreen(container, onBack = { nav.popBackStack() })
         }
+        composable("budgets") {
+            BudgetsScreen(container, onBack = { nav.popBackStack() })
+        }
+        composable("accounts") {
+            AccountsScreen(container, onBack = { nav.popBackStack() })
+        }
+        composable("upcoming") {
+            UpcomingScreen(container, onBack = { nav.popBackStack() })
+        }
         composable("categories") {
             CategoriesScreen(container, onBack = { nav.popBackStack() })
         }
@@ -108,6 +117,17 @@ private fun MainScreen(
     val usage = remember(reviewed) { mostUsedCategories(reviewed) }
     val byId = remember(all) { all.associateBy { it.id } }
     val unread by repository.unread.collectAsStateWithLifecycle(initialValue = emptyList())
+    val budgetList by repository.budgets.collectAsStateWithLifecycle(initialValue = emptyList())
+    val bills by repository.cardBills.collectAsStateWithLifecycle(initialValue = emptyList())
+    val today = java.time.LocalDate.now(Zone)
+    val budgetStatus = remember(budgetList, reviewed, catalog) {
+        app.kharcha.core.Budgets.status(budgetList, reviewed, today, catalog::groupOf)
+    }
+    val upcoming = remember(bills, all) {
+        val live = all.filter { it.status != app.kharcha.core.ReviewStatus.IGNORED }
+        app.kharcha.core.Upcoming.next(bills, app.kharcha.core.InsightsEngine(Zone).recurring(reviewed, today), live, today)
+    }
+    val accountCount = remember(all) { all.mapNotNull { t -> t.accountLast4?.let { (t.bank.orEmpty() + it).lowercase() } }.distinct().size }
     val snackbar = remember { SnackbarHostState() }
     val showUndo: (String, suspend () -> Unit) -> Unit = { message, undo ->
         scope.launch {
@@ -173,6 +193,10 @@ private fun MainScreen(
                 pendingPaise = pending.filter { it.direction == app.kharcha.core.Direction.DEBIT }.sumOf { it.amountPaise },
                 monthlyLimitPaise = limit,
                 onOpenReview = { tab = Tab.REVIEW },
+                budgets = budgetStatus,
+                upcoming = upcoming,
+                accountCount = accountCount,
+                onOpenRoute = openRoute,
                 onCategory = { category ->
                     categoryFilterId = category.id
                     tab = Tab.TRANSACTIONS
@@ -201,7 +225,7 @@ private fun MainScreen(
                 modifier = modifier,
             )
             Tab.INSIGHTS -> InsightsScreen(reviewed, limit, modifier)
-            Tab.SETTINGS -> SettingsScreen(container, openCategories, modifier)
+            Tab.SETTINGS -> SettingsScreen(container, openCategories, modifier, openRoute)
         }
     }
 

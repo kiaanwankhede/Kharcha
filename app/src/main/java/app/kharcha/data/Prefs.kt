@@ -61,6 +61,19 @@ class Prefs(context: Context) {
         }
     }
 
+    /** Alert when an account's balance drops below this; null = off. */
+    var lowBalancePaise: Long?
+        get() = prefs.getLong("low_balance", -1L).takeIf { it > 0 }
+        set(value) = prefs.edit { putLong("low_balance", value ?: -1L) }
+
+    /** Returns true the first time [key] is seen, so each alert goes out once. */
+    fun firstTime(key: String): Boolean {
+        val seen = prefs.getStringSet("alerted", emptySet()).orEmpty()
+        if (key in seen) return false
+        prefs.edit { putStringSet("alerted", (seen + key).toList().takeLast(300).toSet()) }
+        return true
+    }
+
     var reviewReminder: Boolean
         get() = prefs.getBoolean("review_reminder", true)
         set(value) = prefs.edit { putBoolean("review_reminder", value) }

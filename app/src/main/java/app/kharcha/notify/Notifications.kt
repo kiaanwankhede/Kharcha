@@ -39,6 +39,7 @@ object Notifications {
     private const val CHANNEL_PAYMENTS = "payments"
     private const val CHANNEL_REMINDERS = "reminders"
     private const val REMINDER_ID = 1
+    private const val CHANNEL_ALERTS = "alerts"
     const val EXTRA_OPEN_REVIEW = "open_review"
 
     fun createChannels(context: Context) {
@@ -46,6 +47,11 @@ object Notifications {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_PAYMENTS, "New payments", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "A note after each payment so you can review it"
+            },
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ALERTS, "Budgets, bills & balance", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Budget limits, credit card due dates and low balance"
             },
         )
         manager.createNotificationChannel(
@@ -121,6 +127,61 @@ object Notifications {
         NotificationManagerCompat.from(context).notify(REMINDER_ID, notification)
     }
 
+    private fun openApp(context: Context, requestCode: Int): PendingIntent = PendingIntent.getActivity(
+        context,
+        requestCode,
+        Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    @SuppressLint("MissingPermission")
+    private fun alert(context: Context, id: Int, title: String, text: String) {
+        if (!canPost(context)) return
+        val notification = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_stat_rupee)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp(context, id))
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(id, notification)
+    }
+
+    fun showBudgetAlert(context: Context, status: app.kharcha.core.BudgetStatus) {
+        val b = status.budget
+        val over = status.level == app.kharcha.core.BudgetLevel.OVER
+        alert(
+            context,
+            ("budget" + b.id).hashCode(),
+            if (over) "${b.emoji} ${b.label} budget crossed" else "${b.emoji} ${b.label} at ${(status.fraction * 100).toInt()}%",
+            if (over) {
+                "${Money.format(status.spentPaise)} spent of ${Money.format(b.limitPaise)} this month."
+            } else {
+                "${Money.format(status.leftPaise)} left of ${Money.format(b.limitPaise)} this month."
+            },
+        )
+    }
+
+    fun showBillReminder(context: Context, bill: app.kharcha.core.CardBill, daysLeft: Long) {
+        val whenText = when {
+            daysLeft < 0 -> "was due on ${bill.dueDate.dayOfMonth} ${bill.dueDate.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)}"
+            daysLeft == 0L -> "is due today"
+            daysLeft == 1L -> "is due tomorrow"
+            else -> "is due in $daysLeft days"
+        }
+        alert(
+            context,
+            ("bill" + bill.id).hashCode(),
+            "💳 ${bill.label} bill $whenText",
+            "Total ${Money.format(bill.totalDuePaise)}" + (bill.minDuePaise?.let { ", minimum ${Money.format(it)}" } ?: "") + ".",
+        )
+    }
+
+    fun showLowBalance(context: Context, account: String, balancePaise: Long) {
+        alert(context, ("low" + account).hashCode(), "Low balance in $account", "Balance is ${Money.format(balancePaise)}.")
+    }
+
     fun cancel(context: Context, transactionId: Long) {
         NotificationManagerCompat.from(context).cancel(transactionId.toInt())
     }
@@ -176,6 +237,44 @@ class ReviewReminderWorker(context: Context, params: WorkerParameters) : Corouti
             var next = now.with(LocalTime.of(21, 0))
             if (!next.isAfter(now)) next = next.plusDays(1)
             val request = PeriodicWorkRequestBuilder<ReviewReminderWorker>(1, TimeUnit.DAYS)
+                .setInitialDelay(Duration.between(now, next).toMinutes(), TimeUnit.MINUTES)
+                .build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+        }
+    }
+}
+
+/** Every morning around 9:30: reminders for credit card bills due in 3 days, tomorrow, today, or just missed. */
+class BillReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as KharchaApplication).container
+        val zone = ZoneId.of("Asia/Kolkata")
+        val today = java.time.LocalDate.now(zone)
+        val transactions = container.repository.allTransactions().filter { it.status != app.kharcha.core.ReviewStatus.IGNORED }
+        container.repository.cardBillsNow()
+            .groupBy { it.last4 ?: it.bank ?: "" }
+            .mapNotNull { (_, bills) -> bills.maxByOrNull { it.receivedAtMillis } }
+            .forEach { bill ->
+                val state = app.kharcha.core.CardBills.state(bill, transactions, today)
+                if (state == app.kharcha.core.BillState.PAID) return@forEach
+                val daysLeft = java.time.temporal.ChronoUnit.DAYS.between(today, bill.dueDate)
+                if (daysLeft in listOf(3L, 1L, 0L, -1L) && container.prefs.firstTime("bill-${bill.id}-$daysLeft")) {
+                    Notifications.showBillReminder(applicationContext, bill, daysLeft)
+                }
+            }
+        return Result.success()
+    }
+
+    companion object {
+        private const val NAME = "bill-reminder"
+
+        fun schedule(context: Context) {
+            val zone = ZoneId.of("Asia/Kolkata")
+            val now = ZonedDateTime.now(zone)
+            var next = now.with(LocalTime.of(9, 30))
+            if (!next.isAfter(now)) next = next.plusDays(1)
+            val request = PeriodicWorkRequestBuilder<BillReminderWorker>(1, TimeUnit.DAYS)
                 .setInitialDelay(Duration.between(now, next).toMinutes(), TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, request)

@@ -1,6 +1,11 @@
 package app.kharcha.data
 
 import app.kharcha.core.BackupPayload
+import app.kharcha.core.Budget
+import app.kharcha.core.BudgetLevel
+import app.kharcha.core.BudgetStatus
+import app.kharcha.core.Budgets
+import app.kharcha.core.CardBill
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Classifier
@@ -33,6 +38,11 @@ class TransactionRepository(
     private val customCategories = db.customCategories()
     private val unreadMessages = db.unreadMessages()
     private val payeeNames = db.payeeNames()
+    private val budgetDao = db.budgets()
+    private val cardBillDao = db.cardBills()
+
+    /** Called with budgets that just crossed 80% or 100% after a payment was reviewed. */
+    var onBudgetStatus: (List<BudgetStatus>) -> Unit = {}
 
     // SMS and notifications for the same payment can arrive at the same moment; ingest one at a time
     // so the duplicate check always sees the other record.
@@ -56,6 +66,41 @@ class TransactionRepository(
     }
 
     val unread: Flow<List<UnreadMessageEntity>> = unreadMessages.observeOpen()
+
+    val budgets: Flow<List<Budget>> = budgetDao.observeAll().map { list -> list.map { it.toCore() } }
+
+    val cardBills: Flow<List<CardBill>> = cardBillDao.observeAll().map { list -> list.map { it.toCore() } }
+
+    suspend fun saveBudget(budget: Budget) = budgetDao.upsert(budget.toEntity())
+
+    suspend fun deleteBudget(id: Long) = budgetDao.delete(id)
+
+    /** Saves a statement or due reminder; a newer message for the same card and due date updates it. */
+    suspend fun saveCardBill(bill: CardBill) {
+        val existing = cardBillDao.find(bill.last4, bill.dueDate.toString())
+        if (existing == null) {
+            cardBillDao.insert(bill.toEntity())
+        } else if (bill.receivedAtMillis >= existing.receivedAt) {
+            cardBillDao.update(bill.copy(id = existing.id, paidManually = existing.paidManually).toEntity())
+        }
+    }
+
+    suspend fun setBillPaid(id: Long, paid: Boolean) = cardBillDao.setPaid(id, paid)
+
+    suspend fun cardBillsNow(): List<CardBill> = cardBillDao.getAll().map { it.toCore() }
+
+    /** Re-checks budgets after a review; reports the ones at or past 80%. */
+    private suspend fun checkBudgets() {
+        val all = budgetDao.getAll().map { it.toCore() }
+        if (all.isEmpty()) return
+        val catalog = currentCatalog()
+        val reviewedNow = dao.findSince(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).withDayOfMonth(1)
+            .atStartOfDay(java.time.ZoneId.of("Asia/Kolkata")).toInstant().toEpochMilli())
+            .map { it.toCore(catalog) }
+            .filter { it.status == ReviewStatus.REVIEWED }
+        val statuses = Budgets.status(all, reviewedNow, java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")), catalog::groupOf)
+        onBudgetStatus(statuses.filter { it.level != BudgetLevel.OK })
+    }
 
     /**
      * Saves a parsed message, merging it into an existing record when it is the same payment, and
@@ -201,10 +246,14 @@ class TransactionRepository(
         setCategory(id, category, rememberForMerchant)
         if (note != null) setNote(id, note)
         dao.setStatus(id, ReviewStatus.REVIEWED.name)
+        checkBudgets()
     }
 
     /** Accepts a payment with the category it already has. */
-    suspend fun accept(id: Long) = dao.setStatus(id, ReviewStatus.REVIEWED.name)
+    suspend fun accept(id: Long) {
+        dao.setStatus(id, ReviewStatus.REVIEWED.name)
+        checkBudgets()
+    }
 
     /** Not a real spend (a duplicate, a refund pair, not mine): never counted. */
     suspend fun ignore(id: Long) = dao.setStatus(id, ReviewStatus.IGNORED.name)
@@ -238,7 +287,7 @@ class TransactionRepository(
     /** Records a cash payment typed in by the user. */
     suspend fun addCash(amountPaise: Long, whatFor: String, category: Category, timestampMillis: Long): Long {
         val name = Merchants.tidy(whatFor).ifEmpty { "Cash" }
-        return dao.insert(
+        val id = dao.insert(
             Transaction(
                 amountPaise = amountPaise,
                 direction = Direction.DEBIT,
@@ -251,6 +300,8 @@ class TransactionRepository(
                 status = ReviewStatus.REVIEWED,
             ).toEntity(),
         )
+        checkBudgets()
+        return id
     }
 
     suspend fun delete(id: Long) = dao.delete(id)

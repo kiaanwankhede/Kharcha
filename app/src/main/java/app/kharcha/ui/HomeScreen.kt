@@ -25,7 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.kharcha.core.BudgetStatus
 import app.kharcha.core.Category
+import app.kharcha.core.UpcomingItem
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.InsightsEngine
 import app.kharcha.core.dailyTotals
@@ -43,6 +45,10 @@ fun HomeScreen(
     pendingPaise: Long,
     monthlyLimitPaise: Long?,
     onOpenReview: () -> Unit,
+    budgets: List<BudgetStatus> = emptyList(),
+    upcoming: List<UpcomingItem> = emptyList(),
+    accountCount: Int = 0,
+    onOpenRoute: (String) -> Unit = {},
     onCategory: (Category) -> Unit,
     onTransaction: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -192,6 +198,52 @@ fun HomeScreen(
                         Text(Money.format(summary.savedPaise), fontWeight = FontWeight.Bold, color = Blue)
                     }
                     Text("SIPs, stocks, FDs and other savings this month. Not counted as spending.", style = MaterialTheme.typography.bodySmall, color = Muted)
+                }
+            }
+        }
+        if (isCurrent) {
+            item {
+                Panel {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionLabel("Budgets", Modifier.weight(1f))
+                        TextButton(onClick = { onOpenRoute("budgets") }) { Text(if (budgets.isEmpty()) "Set up ›" else "All ›") }
+                    }
+                    if (budgets.isEmpty()) {
+                        Text("Set monthly limits for a group, a subcategory or a merchant like Swiggy.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        budgets.take(3).forEach { BudgetRow(it) { onOpenRoute("budgets") } }
+                    }
+                }
+            }
+            item {
+                Panel(Modifier.clickable { onOpenRoute("upcoming") }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionLabel("Upcoming · 30 days", Modifier.weight(1f))
+                        Text(Money.format(upcoming.sumOf { it.amountPaise }), fontWeight = FontWeight.Bold)
+                    }
+                    if (upcoming.isEmpty()) {
+                        Text("Card bills and monthly payments will show here.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    upcoming.take(3).forEach { item ->
+                        Row {
+                            Text("${item.emoji}  ${item.label}", Modifier.weight(1f), maxLines = 1)
+                            Text(
+                                "${item.date.dayOfMonth} ${item.date.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)} · ${Money.format(item.amountPaise)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (item.date.isBefore(today)) Rust else Muted,
+                            )
+                        }
+                    }
+                }
+            }
+            if (accountCount > 0) {
+                item {
+                    Panel(Modifier.clickable { onOpenRoute("accounts") }, color = Sand) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🏦  $accountCount accounts & cards", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                            Text("Balances ›", color = Blue)
+                        }
+                    }
                 }
             }
         }

@@ -16,6 +16,9 @@ import androidx.room.Update
 import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import app.kharcha.core.Budget
+import app.kharcha.core.BudgetKind
+import app.kharcha.core.CardBill
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Confidence
@@ -63,6 +66,38 @@ data class UnreadMessageEntity(
     val amountPaise: Long?,
     val dismissed: Boolean,
 )
+
+@Entity(tableName = "budgets")
+data class BudgetEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val kind: String,
+    val targetId: String,
+    val label: String,
+    val emoji: String,
+    val limitPaise: Long,
+)
+
+fun BudgetEntity.toCore() = Budget(id, runCatching { BudgetKind.valueOf(kind) }.getOrDefault(BudgetKind.CATEGORY), targetId, label, emoji, limitPaise)
+
+fun Budget.toEntity() = BudgetEntity(id, kind.name, targetId, label, emoji, limitPaise)
+
+/** A credit card statement or due reminder; a newer SMS for the same card and due date replaces it. */
+@Entity(tableName = "card_bills", indices = [Index(value = ["last4", "dueDate"], unique = true)])
+data class CardBillEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bank: String?,
+    val last4: String?,
+    val totalDuePaise: Long,
+    val minDuePaise: Long?,
+    val dueDate: String,
+    val receivedAt: Long,
+    val rawText: String,
+    val paidManually: Boolean,
+)
+
+fun CardBillEntity.toCore() = CardBill(id, bank, last4, totalDuePaise, minDuePaise, java.time.LocalDate.parse(dueDate), receivedAt, rawText, paidManually)
+
+fun CardBill.toEntity() = CardBillEntity(id, bank, last4, totalDuePaise, minDuePaise, dueDate.toString(), receivedAtMillis, rawText, paidManually)
 
 /** The name the user gave a payee; future payments to the same payee use it too. */
 @Entity(tableName = "payee_names")
@@ -265,12 +300,48 @@ interface PayeeNameDao {
     suspend fun upsert(name: PayeeNameEntity)
 }
 
+@Dao
+interface BudgetDao {
+    @Query("SELECT * FROM budgets ORDER BY label")
+    fun observeAll(): Flow<List<BudgetEntity>>
+
+    @Query("SELECT * FROM budgets")
+    suspend fun getAll(): List<BudgetEntity>
+
+    @Upsert
+    suspend fun upsert(budget: BudgetEntity)
+
+    @Query("DELETE FROM budgets WHERE id = :id")
+    suspend fun delete(id: Long)
+}
+
+@Dao
+interface CardBillDao {
+    @Query("SELECT * FROM card_bills ORDER BY dueDate DESC")
+    fun observeAll(): Flow<List<CardBillEntity>>
+
+    @Query("SELECT * FROM card_bills ORDER BY dueDate DESC")
+    suspend fun getAll(): List<CardBillEntity>
+
+    @Query("SELECT * FROM card_bills WHERE (last4 = :last4 OR (last4 IS NULL AND :last4 IS NULL)) AND dueDate = :dueDate LIMIT 1")
+    suspend fun find(last4: String?, dueDate: String): CardBillEntity?
+
+    @Insert
+    suspend fun insert(bill: CardBillEntity): Long
+
+    @Update
+    suspend fun update(bill: CardBillEntity)
+
+    @Query("UPDATE card_bills SET paidManually = :paid WHERE id = :id")
+    suspend fun setPaid(id: Long, paid: Boolean)
+}
+
 @Database(
     entities = [
         TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class,
-        UnreadMessageEntity::class, PayeeNameEntity::class,
+        UnreadMessageEntity::class, PayeeNameEntity::class, BudgetEntity::class, CardBillEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
@@ -279,6 +350,8 @@ abstract class KharchaDatabase : RoomDatabase() {
     abstract fun customCategories(): CustomCategoryDao
     abstract fun unreadMessages(): UnreadMessageDao
     abstract fun payeeNames(): PayeeNameDao
+    abstract fun budgets(): BudgetDao
+    abstract fun cardBills(): CardBillDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -335,9 +408,25 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // Budgets and credit card bills.
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `budgets` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `kind` TEXT NOT NULL, " +
+                        "`targetId` TEXT NOT NULL, `label` TEXT NOT NULL, `emoji` TEXT NOT NULL, `limitPaise` INTEGER NOT NULL)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `card_bills` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `bank` TEXT, `last4` TEXT, " +
+                        "`totalDuePaise` INTEGER NOT NULL, `minDuePaise` INTEGER, `dueDate` TEXT NOT NULL, `receivedAt` INTEGER NOT NULL, " +
+                        "`rawText` TEXT NOT NULL, `paidManually` INTEGER NOT NULL)",
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_card_bills_last4_dueDate` ON `card_bills` (`last4`, `dueDate`)")
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build()
     }
 }

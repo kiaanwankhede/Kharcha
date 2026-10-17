@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import app.kharcha.KharchaApplication
+import app.kharcha.core.CardBills
+import app.kharcha.core.ParsedTransaction
 import app.kharcha.core.SmsParser
 import app.kharcha.notify.Notifications
 import kotlinx.coroutines.CoroutineScope
@@ -29,8 +31,16 @@ class SmsReceiver : BroadcastReceiver() {
                     if (!SmsParser.isLikelyBankSender(sender)) continue
                     val body = parts.joinToString("") { it.messageBody.orEmpty() }
                     val receivedAt = parts.first().timestampMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
+                    val bill = CardBills.parse(sender, body, receivedAt)
+                    if (bill != null) {
+                        repository.saveCardBill(bill)
+                        continue
+                    }
                     when (val reading = SmsParser.inspect(sender, body, receivedAt)) {
-                        is SmsParser.Reading.Read -> repository.ingest(reading.parsed)?.let { Notifications.showNewPayment(context, it) }
+                        is SmsParser.Reading.Read -> {
+                            repository.ingest(reading.parsed)?.let { Notifications.showNewPayment(context, it) }
+                            checkLowBalance(context, reading.parsed)
+                        }
                         is SmsParser.Reading.Unreadable -> repository.recordUnread(sender, body, receivedAt, reading.amountPaise)
                         SmsParser.Reading.Skipped -> Unit
                     }
@@ -39,6 +49,13 @@ class SmsReceiver : BroadcastReceiver() {
                 pending.finish()
             }
         }
+    }
+
+    private fun checkLowBalance(context: Context, parsed: ParsedTransaction) {
+        val threshold = (context.applicationContext as KharchaApplication).container.prefs.lowBalancePaise ?: return
+        val balance = parsed.balancePaise ?: return
+        if (parsed.rawText.contains("credit card", ignoreCase = true) || balance >= threshold) return
+        Notifications.showLowBalance(context, listOfNotNull(parsed.bank, parsed.accountLast4?.let { "··$it" }).joinToString(" "), balance)
     }
 
     private companion object {
