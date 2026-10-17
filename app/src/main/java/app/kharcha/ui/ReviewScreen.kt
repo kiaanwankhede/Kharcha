@@ -47,6 +47,7 @@ import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
 import app.kharcha.core.Kind
+import app.kharcha.core.Merchants
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -246,13 +247,19 @@ private fun ReviewCard(
     onIgnore: () -> Unit,
     onCreateCategory: (label: String, emoji: String, parent: Category, remember: Boolean, note: String?) -> Unit,
 ) {
+    val brand = remember(t.id) { Merchants.brandOf(t) }
+    val multiBusiness = brand?.isMultiBusiness == true
     var category by remember(t.id) { mutableStateOf(t.category) }
-    var rememberForMerchant by remember(t.id) { mutableStateOf(true) }
+    // One choice shouldn't relabel every payment to a merchant that sells several things.
+    var rememberForMerchant by remember(t.id) { mutableStateOf(!multiBusiness) }
     var note by remember(t.id) { mutableStateOf(t.note.orEmpty()) }
     var showMessage by remember(t.id) { mutableStateOf(false) }
     var moreOpen by remember(t.id) { mutableStateOf(false) }
     var creating by remember(t.id) { mutableStateOf(false) }
-    val chips = remember(t.id, quickPicks) { (listOf(t.category) + quickPicks + Category.WALLET).distinctBy { it.id }.take(7) }
+    val chips = remember(t.id, quickPicks) {
+        val choices = brand?.choices.orEmpty()
+        (listOf(t.category) + choices + quickPicks + Category.WALLET).distinctBy { it.id }.take(maxOf(7, choices.size + 2))
+    }
     val time = Instant.ofEpochMilli(t.timestampMillis).atZone(Zone).format(timeFormat)
     val via = listOfNotNull(t.bank, t.accountLast4?.let { "··$it" }).joinToString(" ").ifEmpty {
         if (t.source.name == "NOTIFICATION") "UPI app" else "Bank SMS"
@@ -293,6 +300,13 @@ private fun ReviewCard(
         }
 
         Text("What was this?", style = MaterialTheme.typography.labelLarge, color = Muted)
+        if (multiBusiness && brand != null) {
+            Text(
+                "${brand.name} sells more than one thing (${brand.choices.joinToString(", ") { it.label.lowercase() }}) and the bank SMS doesn’t say which. Pick the right one.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Rust,
+            )
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             chips.forEach { option ->
                 CategoryChip(option, selected = option.id == category.id) { category = option }

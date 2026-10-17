@@ -37,6 +37,7 @@ import app.kharcha.AppContainer
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
+import app.kharcha.core.Merchants
 import app.kharcha.core.Money
 import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
@@ -51,7 +52,7 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
     var creatingCategory by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
-    var rememberForMerchant by rememberSaveable { mutableStateOf(true) }
+    var rememberForMerchant by rememberSaveable(t?.id) { mutableStateOf(t?.let { Merchants.brandOf(it)?.isMultiBusiness } != true) }
     var note by rememberSaveable(t?.id) { mutableStateOf(t?.note.orEmpty()) }
 
     Column(

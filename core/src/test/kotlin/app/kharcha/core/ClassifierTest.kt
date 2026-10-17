@@ -1,6 +1,7 @@
 package app.kharcha.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ClassifierTest {
@@ -90,5 +91,18 @@ class ClassifierTest {
         assertEquals(Category.RESTAURANTS, Classifier.recategorise(old.copy(merchant = "Hotel Annapurna", vpa = null), "FOOD").category)
         assertEquals(Category.CASH, Classifier.recategorise(old, "CASH").category)
         assertEquals(Category.RESTAURANTS, CategoryCatalog().byId("FOOD"))
+    }
+
+    @Test
+    fun `Swiggy can be food or Instamart, and Instamart is recognised when the SMS says so`() {
+        val food = sms("Sent Rs.450.00 From HDFC Bank A/C *1234 To SWIGGY On 16/10/26 Ref 628941075321")
+        assertEquals(Category.FOOD_DELIVERY, food.category)
+        val brand = Merchants.brandOf(food)!!
+        assertTrue(brand.isMultiBusiness)
+        assertTrue(Category.QUICK_COMMERCE in brand.choices)
+
+        val instamart = sms("Sent Rs.612.00 from Kotak Bank AC X1234 to swiggyinstamart@icici on 16-10-26.UPI Ref 628941075322.", "VM-KOTAKB")
+        assertEquals(Category.QUICK_COMMERCE, instamart.category)
+        assertEquals("Swiggy Instamart", instamart.merchant)
     }
 }

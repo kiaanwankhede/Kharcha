@@ -1,19 +1,36 @@
 package app.kharcha.core
 
-/** A well-known merchant: the name to show, its default category, and the words that identify it. */
-data class Brand(val name: String, val category: Category, val keywords: List<String>)
+/**
+ * A well-known merchant: the name to show, its default category, and the words that identify it.
+ * [alternatives] lists the other things a multi-business merchant sells (Swiggy: food delivery and
+ * Instamart groceries), which a bank SMS usually cannot tell apart, so the user is asked instead.
+ */
+data class Brand(
+    val name: String,
+    val category: Category,
+    val keywords: List<String>,
+    val alternatives: List<Category> = emptyList(),
+) {
+    /** True when one payment to this merchant could be any of several categories. */
+    val isMultiBusiness: Boolean get() = alternatives.isNotEmpty()
+
+    /** Every category this merchant's payments can be, default first. */
+    val choices: List<Category> get() = listOf(category) + alternatives
+}
 
 object Merchants {
 
     val BRANDS: List<Brand> = listOf(
         // Groceries & daily needs
-        Brand("Swiggy Instamart", Category.QUICK_COMMERCE, listOf("instamart")),
+        Brand("Swiggy Instamart", Category.QUICK_COMMERCE, listOf("instamart", "swiggyinstamart", "swiggy instamart", "swiggy-instamart")),
+        Brand("Amazon Fresh", Category.QUICK_COMMERCE, listOf("amazon fresh", "amazonfresh", "amazon now")),
         Brand("Blinkit", Category.QUICK_COMMERCE, listOf("blinkit", "grofers")),
-        Brand("Zepto", Category.QUICK_COMMERCE, listOf("zepto", "kiranakart")),
-        Brand("Flipkart Minutes", Category.QUICK_COMMERCE, listOf("flipkart minutes")),
+        Brand("Zepto", Category.QUICK_COMMERCE, listOf("zepto", "kiranakart"), alternatives = listOf(Category.CAFES)),
+        Brand("Flipkart Minutes", Category.QUICK_COMMERCE, listOf("flipkart minutes", "flipkartminutes")),
+        Brand("Zepto Café", Category.CAFES, listOf("zepto cafe", "zeptocafe")),
         Brand("BigBasket", Category.KIRANA, listOf("bigbasket", "bbnow", "innovative retail")),
         Brand("DMart", Category.KIRANA, listOf("dmart", "avenue supermarts")),
-        Brand("JioMart", Category.KIRANA, listOf("jiomart", "reliance retail", "reliance fresh", "smart bazaar")),
+        Brand("JioMart", Category.KIRANA, listOf("jiomart", "reliance retail", "reliance fresh", "smart bazaar"), alternatives = listOf(Category.ONLINE_SHOPPING)),
         Brand("More", Category.KIRANA, listOf("more retail", "more supermarket")),
         Brand("Spencer's", Category.KIRANA, listOf("spencer")),
         Brand("Star Bazaar", Category.KIRANA, listOf("star bazaar", "trent hypermarket")),
@@ -26,8 +43,11 @@ object Merchants {
         Brand("FreshToHome", Category.MEAT, listOf("freshtohome")),
         Brand("Bisleri", Category.WATER_CANS, listOf("bisleri")),
         // Food & drinks
-        Brand("Swiggy", Category.FOOD_DELIVERY, listOf("swiggy", "bundl technologies")),
-        Brand("Zomato", Category.FOOD_DELIVERY, listOf("zomato", "eternal limited")),
+        Brand(
+            "Swiggy", Category.FOOD_DELIVERY, listOf("swiggy", "bundl technologies"),
+            alternatives = listOf(Category.QUICK_COMMERCE, Category.RESTAURANTS),
+        ),
+        Brand("Zomato", Category.FOOD_DELIVERY, listOf("zomato", "eternal limited"), alternatives = listOf(Category.RESTAURANTS)),
         Brand("EatSure", Category.FOOD_DELIVERY, listOf("eatsure", "rebel foods")),
         Brand("Domino's", Category.RESTAURANTS, listOf("domino", "jubilant")),
         Brand("McDonald's", Category.RESTAURANTS, listOf("mcdonald", "hardcastle", "connaught plaza")),
@@ -74,8 +94,11 @@ object Merchants {
         Brand("Water", Category.WATER, listOf("water bill", "jal board", "bwssb", "water supply")),
         Brand("Broadband", Category.INTERNET, listOf("act fibernet", "hathway", "jiofiber", "airtel xstream", "broadband", "excitel", "you broadband")),
         // Shopping
-        Brand("Amazon", Category.ONLINE_SHOPPING, listOf("amazon", "amzn")),
-        Brand("Flipkart", Category.ONLINE_SHOPPING, listOf("flipkart")),
+        Brand(
+            "Amazon", Category.ONLINE_SHOPPING, listOf("amazon", "amzn"),
+            alternatives = listOf(Category.QUICK_COMMERCE, Category.ELECTRONICS, Category.OTT),
+        ),
+        Brand("Flipkart", Category.ONLINE_SHOPPING, listOf("flipkart"), alternatives = listOf(Category.QUICK_COMMERCE, Category.ELECTRONICS)),
         Brand("Meesho", Category.ONLINE_SHOPPING, listOf("meesho")),
         Brand("Myntra", Category.CLOTHES, listOf("myntra")),
         Brand("Ajio", Category.CLOTHES, listOf("ajio")),
@@ -170,6 +193,9 @@ object Merchants {
     )
 
     data class Resolved(val name: String, val key: String, val brand: Brand?, val isPerson: Boolean)
+
+    /** The merchant behind a stored transaction, if it is a known one. */
+    fun brandOf(t: Transaction): Brand? = brandFor(listOfNotNull(t.merchant, t.vpa).joinToString(" "))
 
     fun brandFor(text: String): Brand? {
         val haystack = text.lowercase()
