@@ -65,6 +65,8 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
     var sms by remember { mutableStateOf(hasSmsPermission(context)) }
     var notifications by remember { mutableStateOf(PaymentNotificationListener.isEnabled(context)) }
     var lockEnabled by remember { mutableStateOf(prefs.lockEnabled) }
+    var secureScreen by remember { mutableStateOf(prefs.secureScreen) }
+    var widgetHides by remember { mutableStateOf(prefs.widgetHidesAmounts) }
     var postNotifications by remember { mutableStateOf(Notifications.canPost(context)) }
     var reviewReminder by remember { mutableStateOf(prefs.reviewReminder) }
     val theme by prefs.themeFlow.collectAsStateWithLifecycle()
@@ -291,6 +293,28 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
                         }
                     },
                 )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Hide from recents & screenshots", fontWeight = FontWeight.SemiBold)
+                    Text("The app shows blank in the app switcher and can’t be screenshotted.", color = Muted)
+                }
+                Switch(checked = secureScreen, onCheckedChange = {
+                    secureScreen = it
+                    prefs.secureScreen = it
+                    (context as? android.app.Activity)?.let { activity -> app.kharcha.applySecureScreen(activity, it) }
+                })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Hide amounts on the widget", fontWeight = FontWeight.SemiBold)
+                    Text("Shows ₹ •••• on the home screen.", color = Muted)
+                }
+                Switch(checked = widgetHides, onCheckedChange = {
+                    widgetHides = it
+                    prefs.widgetHidesAmounts = it
+                    app.kharcha.widget.DeckWidgetProvider.refresh(context)
+                })
             }
             Text("No account, no server. The only data leaving the phone is your encrypted backup file.", color = Muted)
         }

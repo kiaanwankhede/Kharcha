@@ -102,4 +102,14 @@ class Prefs(context: Context) {
     var myName: String?
         get() = prefs.getString("my_name", null)?.takeIf { it.isNotBlank() }
         set(value) = prefs.edit { putString("my_name", value?.trim()) }
+
+    /** Blocks screenshots and blanks the app in the recent-apps view. */
+    var secureScreen: Boolean
+        get() = prefs.getBoolean("secure_screen", false)
+        set(value) = prefs.edit { putBoolean("secure_screen", value) }
+
+    /** Shows "₹ ••••" instead of amounts on the home-screen widget. */
+    var widgetHidesAmounts: Boolean
+        get() = prefs.getBoolean("widget_hides_amounts", false)
+        set(value) = prefs.edit { putBoolean("widget_hides_amounts", value) }
 }

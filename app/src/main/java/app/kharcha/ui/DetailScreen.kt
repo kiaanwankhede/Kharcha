@@ -49,7 +49,7 @@ import app.kharcha.core.Source
 import kotlinx.coroutines.launch
 
 @Composable
-fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
+fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMerchant: (String) -> Unit = {}) {
     val repository = container.repository
     val flow = remember(id) { repository.transaction(id) }
     val t by flow.collectAsStateWithLifecycle(initialValue = null)
@@ -82,6 +82,7 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             color = if (txn.direction == Direction.CREDIT) Blue else Navy,
         )
         Text(if (txn.direction == Direction.CREDIT) "Money in" else "Money out", color = Muted)
+        TextButton(onClick = { onOpenMerchant(txn.merchantKey) }) { Text("Everything with ${txn.merchant} ›") }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { editing = true }) { Text("✎ Amount / date") }
             TextButton(onClick = { renaming = true }) { Text("Rename payee") }

@@ -100,6 +100,17 @@ fun AppRoot(
         composable("reimburse") {
             ReimburseScreen(container, onBack = { nav.popBackStack() }, onTransaction = { id -> nav.navigate("transaction/$id") })
         }
+        composable("tax") {
+            TaxScreen(container, onBack = { nav.popBackStack() })
+        }
+        composable("merchant/{key}", arguments = listOf(navArgument("key") { type = NavType.StringType })) { entry ->
+            MerchantScreen(
+                container,
+                key = entry.arguments?.getString("key").orEmpty(),
+                onBack = { nav.popBackStack() },
+                onTransaction = { id -> nav.navigate("transaction/$id") },
+            )
+        }
         composable("goals") {
             GoalsScreen(container, onBack = { nav.popBackStack() })
         }
@@ -107,7 +118,12 @@ fun AppRoot(
             CategoriesScreen(container, onBack = { nav.popBackStack() })
         }
         composable("transaction/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
-            DetailScreen(container, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() })
+            DetailScreen(
+                container,
+                entry.arguments?.getLong("id") ?: 0L,
+                onBack = { nav.popBackStack() },
+                onOpenMerchant = { key -> nav.navigate("merchant/${android.net.Uri.encode(key)}") },
+            )
         }
     }
 }
@@ -261,7 +277,7 @@ private fun MainScreen(
                 onTransaction = openTransaction,
                 modifier = modifier,
             )
-            Tab.INSIGHTS -> InsightsScreen(reviewed, limit, modifier)
+            Tab.INSIGHTS -> InsightsScreen(reviewed, limit, modifier, catalog::groupOf, openRoute)
             Tab.SETTINGS -> SettingsScreen(container, openCategories, modifier, openRoute)
         }
     }

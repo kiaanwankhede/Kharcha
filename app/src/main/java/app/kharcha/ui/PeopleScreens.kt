@@ -482,10 +482,11 @@ fun GoalsScreen(container: AppContainer, onBack: () -> Unit) {
                     Text("${Money.format(p.savedPaise)} / ${Money.format(g.targetPaise)}", style = MaterialTheme.typography.bodySmall)
                 }
                 Bar(p.fraction, color = if (p.reached) ChartStrong else Blue)
+                val perMonth = p.perMonthNeededPaise
                 Text(
                     when {
                         p.reached -> "Reached 🎉"
-                        p.perMonthNeededPaise != null -> "${Money.format(p.perMonthNeededPaise)} a month to reach it by ${g.deadline?.shortText()}"
+                        perMonth != null -> "${Money.format(perMonth)} a month to reach it by ${g.deadline?.shortText()}"
                         else -> "${Money.format(p.leftPaise)} to go"
                     },
                     style = MaterialTheme.typography.bodySmall,

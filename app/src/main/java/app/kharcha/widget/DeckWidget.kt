@@ -88,6 +88,9 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
     private val zone = ZoneId.of("Asia/Kolkata")
     private var cards: List<DeckCard> = emptyList()
     private var today: LocalDate = LocalDate.now(zone)
+    private var hideAmounts = false
+
+    private fun money(paise: Long): String = if (hideAmounts) "₹ ••••" else Money.format(paise)
 
     override fun onCreate() = Unit
 
@@ -101,6 +104,7 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
             return
         }
         today = LocalDate.now(zone)
+        hideAmounts = container.prefs.widgetHidesAmounts
         cards = runBlocking(Dispatchers.IO) {
             val repository = container.repository
             val catalog = repository.catalogNow()
@@ -166,7 +170,7 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
             val t = card.top.getOrNull(i)
             setViewVisibility(ids.first, if (t == null) View.GONE else View.VISIBLE)
             if (t == null) return@forEachIndexed
-            val amount = if (t.direction == Direction.CREDIT) "+${Money.format(t.amountPaise)}" else Money.format(t.amountPaise)
+            val amount = if (t.direction == Direction.CREDIT) "+${money(t.amountPaise)}" else money(t.amountPaise)
             setTextViewText(ids.second, "$amount · ${t.merchant}")
             setTextViewText(ids.third, "${t.category.emoji} ${t.category.label} · ${t.confidence.label()}")
             setContentDescription(accept, "Accept ${t.merchant} as ${t.category.label}")
@@ -177,16 +181,16 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
     private fun safe(card: DeckCard.Safe) = views(R.layout.deck_card_safe, WidgetActionActivity.open(WidgetActionActivity.OPEN_HOME)).apply {
         val percent = if (card.limitPaise <= 0) 0 else (card.spentPaise * 100 / card.limitPaise).toInt()
         val over = card.spentPaise >= card.limitPaise
-        setTextViewText(R.id.safe_amount, Money.format(card.safeTodayPaise))
+        setTextViewText(R.id.safe_amount, money(card.safeTodayPaise))
         setProgressBar(R.id.safe_bar, 100, percent.coerceIn(0, 100), false)
         setViewVisibility(R.id.safe_bar, if (over) View.GONE else View.VISIBLE)
         setViewVisibility(R.id.safe_bar_over, if (over) View.VISIBLE else View.GONE)
-        setTextViewText(R.id.safe_caption, "${Money.format(card.spentPaise)} of ${Money.format(card.limitPaise)} this month")
+        setTextViewText(R.id.safe_caption, "${money(card.spentPaise)} of ${money(card.limitPaise)} this month")
         setOnClickFillInIntent(R.id.safe_cash, WidgetActionActivity.open(WidgetActionActivity.ADD_CASH))
     }
 
     private fun today(card: DeckCard.Today) = views(R.layout.deck_card_today, WidgetActionActivity.open(WidgetActionActivity.OPEN_HOME)).apply {
-        setTextViewText(R.id.today_amount, Money.format(card.spentPaise))
+        setTextViewText(R.id.today_amount, money(card.spentPaise))
         setTextViewText(
             R.id.today_count,
             when (card.payments) {
@@ -212,7 +216,7 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
             },
         )
         setTextColor(R.id.month_change, context.getColor(if ((change ?: 0) > 0) R.color.widget_warn else R.color.widget_muted))
-        setTextViewText(R.id.month_amount, Money.format(card.spentPaise))
+        setTextViewText(R.id.month_amount, money(card.spentPaise))
         setImageViewBitmap(R.id.month_bars, bars(card.lastSevenDays))
         setTextViewText(
             R.id.month_groups,
@@ -244,7 +248,7 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
     }
 
     private fun upcoming(card: DeckCard.Upcoming) = views(R.layout.deck_card_upcoming, WidgetActionActivity.open(WidgetActionActivity.OPEN_UPCOMING)).apply {
-        setTextViewText(R.id.up_total, "30 days · ${Money.format(card.totalPaise)}")
+        setTextViewText(R.id.up_total, "30 days · ${money(card.totalPaise)}")
         val rows = listOf(
             arrayOf(R.id.up_row1, R.id.up_label1, R.id.up_when1, R.id.up_amount1),
             arrayOf(R.id.up_row2, R.id.up_label2, R.id.up_when2, R.id.up_amount2),
@@ -269,7 +273,7 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
             )
             setTextColor(whenId, context.getColor(if (soon) R.color.widget_warn else R.color.widget_muted))
             setInt(row, "setBackgroundResource", if (soon) R.drawable.widget_row_alert_bg else R.drawable.widget_row_bg)
-            setTextViewText(amount, Money.format(item.amountPaise))
+            setTextViewText(amount, money(item.amountPaise))
         }
     }
 
@@ -299,6 +303,7 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
 
     /** ₹450, ₹2.9k, ₹1.2L: short amounts for tight spaces. */
     private fun short(paise: Long): String {
+        if (hideAmounts) return "₹ ••"
         val rupees = paise / 100
         fun oneDecimal(value: Double) = if (value >= 10) "%.0f".format(value) else "%.1f".format(value).removeSuffix(".0")
         return when {

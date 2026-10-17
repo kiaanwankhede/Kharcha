@@ -1,5 +1,6 @@
 package app.kharcha.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.kharcha.core.Category
 import app.kharcha.core.InsightKind
 import app.kharcha.core.InsightsEngine
 import app.kharcha.core.Money
@@ -21,7 +23,13 @@ import java.time.LocalDate
 
 
 @Composable
-fun InsightsScreen(transactions: List<Transaction>, monthlyLimitPaise: Long?, modifier: Modifier = Modifier) {
+fun InsightsScreen(
+    transactions: List<Transaction>,
+    monthlyLimitPaise: Long?,
+    modifier: Modifier = Modifier,
+    groupOf: (Category) -> Category = Category::groupOf,
+    onOpenRoute: (String) -> Unit = {},
+) {
     val today = LocalDate.now(Zone)
     val engine = remember { InsightsEngine(Zone) }
     val insights = remember(transactions, monthlyLimitPaise) { engine.insights(transactions, today, monthlyLimitPaise) }
@@ -33,6 +41,16 @@ fun InsightsScreen(transactions: List<Transaction>, monthlyLimitPaise: Long?, mo
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text("Insights", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        item { HeatmapPanel(transactions, today) }
+        item { MonthReportPanel(transactions, today, groupOf) }
+        item {
+            Panel(Modifier.clickable { onOpenRoute("tax") }, color = CoolTint) {
+                Row {
+                    Text("🏛️  Tax view", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                    Text("80C, 80D, 80G ›", color = Blue)
+                }
+            }
+        }
         if (insights.isEmpty()) {
             item {
                 EmptyState(

@@ -98,6 +98,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        applySecureScreen(this, (application as KharchaApplication).container.prefs.secureScreen)
         // Lock again after a minute in the background. Shorter trips (the file picker) stay unlocked.
         if (stoppedAt > 0 && SystemClock.elapsedRealtime() - stoppedAt > RELOCK_AFTER_MILLIS) unlocked = false
     }
@@ -114,6 +115,15 @@ class MainActivity : FragmentActivity() {
     private companion object {
         const val KEY_UNLOCKED = "unlocked"
         const val RELOCK_AFTER_MILLIS = 60_000L
+    }
+}
+
+/** Turns screenshot blocking (and the blank app-switcher preview) on or off for [activity]. */
+fun applySecureScreen(activity: android.app.Activity, on: Boolean) {
+    if (on) {
+        activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+    } else {
+        activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
     }
 }
 
