@@ -43,9 +43,7 @@ fun TransactionsScreen(
     val shown = remember(transactions, ignored, showIgnored, query, categoryFilter) {
         val q = query.trim().lowercase()
         (if (showIgnored) ignored else transactions).filter { t ->
-            (categoryFilter == null || t.category == categoryFilter) &&
-                (q.isEmpty() || t.merchant.lowercase().contains(q) || t.category.label.lowercase().contains(q) ||
-                    t.note.orEmpty().lowercase().contains(q) || Money.format(t.amountPaise).contains(q))
+            (categoryFilter == null || t.category.id == categoryFilter.id) && t.matches(q)
         }
     }
     val byDay = remember(shown) { shown.groupBy { it.localDate() } }
@@ -57,7 +55,7 @@ fun TransactionsScreen(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search merchant, category, note or amount") },
+                placeholder = { Text("Search payee, amount, UPI ID, note, SMS…") },
                 singleLine = true,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

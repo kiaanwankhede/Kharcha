@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +49,7 @@ import app.kharcha.core.Direction
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -66,7 +70,23 @@ fun ReviewScreen(
     val repository = container.repository
     val scope = rememberCoroutineScope()
     var confirmAcceptAll by remember { mutableStateOf(false) }
-    val byDay = remember(pending) { pending.groupBy { it.localDate() } }
+    var query by rememberSaveable { mutableStateOf("") }
+    var filter by rememberSaveable { mutableStateOf(ReviewFilter.ALL) }
+    var sort by rememberSaveable { mutableStateOf(ReviewSort.NEWEST) }
+    val today = LocalDate.now(Zone)
+    val shown = remember(pending, query, filter, sort) {
+        pending.filter { it.matches(query) && filter.accepts(it, today) }.let { list ->
+            when (sort) {
+                ReviewSort.NEWEST -> list.sortedByDescending { it.timestampMillis }
+                ReviewSort.OLDEST -> list.sortedBy { it.timestampMillis }
+                ReviewSort.LARGEST -> list.sortedByDescending { it.amountPaise }
+            }
+        }
+    }
+    val isFiltered = query.isNotBlank() || filter != ReviewFilter.ALL
+    val byDay = remember(shown, sort) {
+        if (sort == ReviewSort.LARGEST) mapOf<LocalDate?, List<Transaction>>(null to shown) else shown.groupBy<Transaction, LocalDate?> { it.localDate() }
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
@@ -86,6 +106,49 @@ fun ReviewScreen(
                 )
             }
         }
+        if (pending.isNotEmpty()) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Search payee, amount, UPI ID, note, SMS…") },
+                        singleLine = true,
+                        trailingIcon = {
+                            if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("✕") }
+                        },
+                    )
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ReviewFilter.entries.forEach { option ->
+                            val count = pending.count { it.matches(query) && option.accepts(it, today) }
+                            CategoryChip("${option.label} ($count)", selected = filter == option) { filter = option }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Sort:", style = MaterialTheme.typography.bodySmall, color = Faint)
+                        ReviewSort.entries.forEach { option ->
+                            Text(
+                                option.label,
+                                Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { sort = option }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (sort == option) Blue else Faint,
+                                fontWeight = if (sort == option) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (pending.isNotEmpty() && shown.isEmpty()) {
+            item { EmptyState("No matches", "Nothing waiting for review matches this search or filter.") }
+        }
         if (pending.isEmpty()) {
             item {
                 Panel(color = CoolTint) {
@@ -95,8 +158,10 @@ fun ReviewScreen(
             }
         }
         byDay.forEach { (day, dayItems) ->
-            item(key = "day-$day") {
-                SectionLabel("${day.dayHeader()} · ${dayItems.size} to review", Modifier.padding(top = 6.dp))
+            if (day != null) {
+                item(key = "day-$day") {
+                    SectionLabel("${day.dayHeader()} · ${dayItems.size} to review", Modifier.padding(top = 6.dp))
+                }
             }
             items(dayItems, key = { it.id }) { t ->
                 ReviewCard(
@@ -116,10 +181,16 @@ fun ReviewScreen(
                 )
             }
         }
-        if (pending.size > 1) {
+        if (shown.size > 1) {
             item {
                 TextButton(onClick = { confirmAcceptAll = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Accept all ${pending.size} with suggested categories")
+                    Text(
+                        if (isFiltered) {
+                            "Accept these ${shown.size} with suggested categories"
+                        } else {
+                            "Accept all ${shown.size} with suggested categories"
+                        },
+                    )
                 }
             }
         }
@@ -130,11 +201,11 @@ fun ReviewScreen(
         AlertDialog(
             onDismissRequest = { confirmAcceptAll = false },
             title = { Text("Accept all?") },
-            text = { Text("All ${pending.size} payments will be counted with the categories shown. You can still change any of them later.") },
+            text = { Text("These ${shown.size} payments will be counted with the categories shown. You can still change any of them later.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmAcceptAll = false
-                    val ids = pending.map { it.id }
+                    val ids = shown.map { it.id }
                     scope.launch { ids.forEach { repository.accept(it) } }
                 }) { Text("Accept all") }
             },
@@ -142,6 +213,27 @@ fun ReviewScreen(
         )
     }
 }
+
+private enum class ReviewFilter(val label: String) {
+    ALL("All"),
+    TODAY("Today"),
+    YESTERDAY("Yesterday"),
+    WEEK("This week"),
+    MONEY_IN("Money in"),
+    LARGE("₹1,000+"),
+    ;
+
+    fun accepts(t: Transaction, today: LocalDate): Boolean = when (this) {
+        ALL -> true
+        TODAY -> t.localDate() == today
+        YESTERDAY -> t.localDate() == today.minusDays(1)
+        WEEK -> t.localDate() > today.minusDays(7)
+        MONEY_IN -> t.direction == Direction.CREDIT
+        LARGE -> t.amountPaise >= 1_000_00
+    }
+}
+
+private enum class ReviewSort(val label: String) { NEWEST("Newest"), OLDEST("Oldest"), LARGEST("Largest") }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
