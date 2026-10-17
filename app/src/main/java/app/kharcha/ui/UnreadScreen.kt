@@ -98,13 +98,13 @@ fun UnreadScreen(container: AppContainer, onBack: () -> Unit) {
     }
 }
 
-private fun copyToClipboard(context: Context, text: String) {
+fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(ClipboardManager::class.java)
     clipboard?.setPrimaryClip(ClipData.newPlainText("Bank message", text))
 }
 
 @Composable
-private fun AddFromMessageDialog(
+fun AddFromMessageDialog(
     message: UnreadMessageEntity,
     catalog: CategoryCatalog,
     onDismiss: () -> Unit,

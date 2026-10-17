@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import app.kharcha.KharchaApplication
-import app.kharcha.core.CardBills
 import app.kharcha.core.ParsedTransaction
 import app.kharcha.core.SmsParser
 import app.kharcha.notify.Notifications
@@ -31,19 +30,9 @@ class SmsReceiver : BroadcastReceiver() {
                     if (!SmsParser.isLikelyBankSender(sender)) continue
                     val body = parts.joinToString("") { it.messageBody.orEmpty() }
                     val receivedAt = parts.first().timestampMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
-                    val bill = CardBills.parse(sender, body, receivedAt)
-                    if (bill != null) {
-                        repository.saveCardBill(bill)
-                        continue
-                    }
-                    when (val reading = SmsParser.inspect(sender, body, receivedAt)) {
-                        is SmsParser.Reading.Read -> {
-                            repository.ingest(reading.parsed)?.let { Notifications.showNewPayment(context, it) }
-                            checkLowBalance(context, reading.parsed)
-                        }
-                        is SmsParser.Reading.Unreadable -> repository.recordUnread(sender, body, receivedAt, reading.amountPaise)
-                        SmsParser.Reading.Skipped -> Unit
-                    }
+                    val captured = repository.capture(sender, body, receivedAt)
+                    captured.newTransaction?.let { Notifications.showNewPayment(context, it) }
+                    captured.parsed?.let { checkLowBalance(context, it) }
                 }
             } finally {
                 pending.finish()

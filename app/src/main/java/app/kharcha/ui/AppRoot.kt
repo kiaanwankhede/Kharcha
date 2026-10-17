@@ -213,6 +213,7 @@ private fun MainScreen(
                 unreadCount = unread.size,
                 onOpenUnread = { openRoute("unread") },
                 onUndoable = showUndo,
+                onOpenTransaction = openTransaction,
                 modifier = modifier,
                 streak = streak,
             )

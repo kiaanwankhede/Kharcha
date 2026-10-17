@@ -77,6 +77,42 @@ fun ReviewScreen(
     lookup: (Long) -> Transaction?,
     unreadCount: Int,
     onOpenUnread: () -> Unit,
+    onUndoable: (message: String, undo: suspend () -> Unit) -> Unit,
+    onOpenTransaction: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    streak: Int = 0,
+) {
+    var showMessages by rememberSaveable { mutableStateOf(false) }
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(false to "Payments (${pending.size})", true to "All bank messages").forEach { (value, label) ->
+                if (showMessages == value) {
+                    Button(onClick = {}) { Text(label) }
+                } else {
+                    OutlinedButton(onClick = { showMessages = value }) { Text(label) }
+                }
+            }
+        }
+        if (showMessages) {
+            MessagesView(container, onOpenTransaction, onUndoable, Modifier.padding(top = 8.dp))
+        } else {
+            PaymentsReview(container, pending, catalog, usage, lookup, unreadCount, onOpenUnread, onUndoable, Modifier, streak)
+        }
+    }
+}
+
+@Composable
+private fun PaymentsReview(
+    container: AppContainer,
+    pending: List<Transaction>,
+    catalog: CategoryCatalog,
+    usage: List<Category>,
+    lookup: (Long) -> Transaction?,
+    unreadCount: Int,
+    onOpenUnread: () -> Unit,
     /** Shows a message with an Undo action that runs [undo]. */
     onUndoable: (message: String, undo: suspend () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
@@ -211,6 +247,13 @@ fun ReviewScreen(
                         onUndoable("Ignored as a duplicate") { repository.sendBackToReview(t.id) }
                     },
                     onNotDuplicate = { scope.launch { repository.notDuplicate(t.id) } },
+                    onNotMoney = {
+                        scope.launch {
+                            val result = repository.markTransactionNotMoney(t.id) ?: return@launch
+                            val extra = if (result.similarCount > 0) " and ${result.similarCount} similar" else ""
+                            onUndoable("Not money: hidden this$extra. Messages like it will be hidden from now on.") { repository.undoNotMoney(result) }
+                        }
+                    },
                     onCreateCategory = { label, emoji, parent, remember, note ->
                         scope.launch {
                             val created = repository.saveCategory(Category.custom(label, emoji, parent))
@@ -301,6 +344,7 @@ private fun ReviewCard(
     onIgnore: () -> Unit,
     onConfirmDuplicate: () -> Unit,
     onNotDuplicate: () -> Unit,
+    onNotMoney: () -> Unit,
     onCreateCategory: (label: String, emoji: String, parent: Category, remember: Boolean, note: String?) -> Unit,
 ) {
     val brand = remember(t.id) { Merchants.brandOf(t) }
@@ -500,6 +544,7 @@ private fun ReviewCard(
                 Text("✓ Reviewed")
             }
         }
+        TextButton(onClick = onNotMoney) { Text("Not money — hide messages like this", color = Faint) }
         Text("Tip: swipe right to accept, left to ignore", style = MaterialTheme.typography.bodySmall, color = Faint)
         }
     }

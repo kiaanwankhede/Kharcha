@@ -12,7 +12,11 @@ import app.kharcha.core.Classifier
 import app.kharcha.core.Confidence
 import app.kharcha.core.Deduplicator
 import app.kharcha.core.Direction
+import app.kharcha.core.CardBills
 import app.kharcha.core.Merchants
+import app.kharcha.core.MessageRule
+import app.kharcha.core.MessageRules
+import app.kharcha.core.SmsParser
 import app.kharcha.core.Refunds
 import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
@@ -37,6 +41,7 @@ class TransactionRepository(
     private val rules = db.rules()
     private val customCategories = db.customCategories()
     private val unreadMessages = db.unreadMessages()
+    private val messageRules = db.messageRules()
     private val payeeNames = db.payeeNames()
     private val budgetDao = db.budgets()
     private val cardBillDao = db.cardBills()
@@ -66,6 +71,153 @@ class TransactionRepository(
     }
 
     val unread: Flow<List<UnreadMessageEntity>> = unreadMessages.observeOpen()
+
+    /** Every bank message (newest first) with what happened to it. */
+    val messages: Flow<List<UnreadMessageEntity>> = unreadMessages.observeAll()
+
+    val rules: Flow<List<MessageRule>> = messageRules.observeAll().map { list -> list.map { it.toCore() } }
+
+    /** What capturing one SMS produced: a new payment to announce, and the parsed message (for balance checks). */
+    data class Captured(val newTransaction: Transaction?, val parsed: ParsedTransaction?)
+
+    /**
+     * The single path for every incoming or scanned SMS. Personal messages and OTPs are dropped; bank
+     * messages are kept with what happened to them: a payment, a card bill, unreadable, skipped, or
+     * hidden by a pattern the user taught.
+     */
+    suspend fun capture(sender: String, body: String, receivedAt: Long): Captured {
+        if (!SmsParser.isLikelyBankSender(sender) || SmsParser.isOtp(body)) return Captured(null, null)
+        fun record(state: String, amount: Long? = null, transactionId: Long? = null) = UnreadMessageEntity(
+            sender = sender, body = body, receivedAt = receivedAt, amountPaise = amount, dismissed = false,
+            state = state, transactionId = transactionId,
+        )
+        CardBills.parse(sender, body, receivedAt)?.let { bill ->
+            saveCardBill(bill)
+            unreadMessages.insert(record(MessageState.BILL, bill.totalDuePaise))
+            return Captured(null, null)
+        }
+        val reading = SmsParser.inspect(sender, body, receivedAt)
+        val rules = messageRules.getAll().map { it.toCore() }
+        if (rules.any { MessageRules.matches(it, sender, body, paymentLike = reading is SmsParser.Reading.Read) }) {
+            unreadMessages.insert(record(MessageState.HIDDEN))
+            return Captured(null, null)
+        }
+        return when (reading) {
+            is SmsParser.Reading.Read -> {
+                val created = ingest(reading.parsed)
+                val linkedId = created?.id ?: reading.parsed.reference?.let { ref -> dao.findByReference(ref).firstOrNull()?.id }
+                unreadMessages.insert(record(MessageState.PAYMENT, reading.parsed.amountPaise, linkedId))
+                Captured(created, reading.parsed)
+            }
+            is SmsParser.Reading.Unreadable -> {
+                unreadMessages.insert(record(MessageState.UNREAD, reading.amountPaise))
+                Captured(null, null)
+            }
+            SmsParser.Reading.Skipped -> {
+                unreadMessages.insert(record(MessageState.SKIPPED))
+                Captured(null, null)
+            }
+        }
+    }
+
+    /** What "not money" changed, so it can be undone. */
+    data class NotMoneyResult(
+        val ruleId: Long,
+        val messages: List<Pair<Long, String>>,
+        val transactions: List<Pair<Long, String>>,
+    ) {
+        val similarCount: Int get() = (messages.size - 1).coerceAtLeast(0)
+    }
+
+    /** How many other messages a "not money" on [id] would also hide (shown before a payment-covering rule is made). */
+    suspend fun previewNotMoney(id: Long): Int {
+        val message = unreadMessages.get(id) ?: return 0
+        val rule = MessageRules.create(message.sender, message.body, message.state == MessageState.PAYMENT, 0)
+        return candidatesFor(rule, exclude = id).size
+    }
+
+    /**
+     * The user says a message isn't money: it is set aside, a pattern is learned from it, and similar
+     * messages (and their payments still waiting for review) are hidden too. Reviewed payments are never touched.
+     */
+    suspend fun markNotMoney(id: Long): NotMoneyResult? {
+        val message = unreadMessages.get(id) ?: return null
+        val rule = MessageRules.create(message.sender, message.body, coversPayments = message.state == MessageState.PAYMENT, nowMillis = System.currentTimeMillis())
+        val ruleId = messageRules.insert(rule.toEntity())
+        val changedMessages = mutableListOf(message.id to message.state)
+        val changedTransactions = mutableListOf<Pair<Long, String>>()
+        suspend fun setAside(m: UnreadMessageEntity, state: String) {
+            unreadMessages.setState(m.id, state, m.transactionId, dismissed = true)
+            m.transactionId?.let { txId ->
+                dao.get(txId)?.takeIf { it.status != ReviewStatus.IGNORED.name }?.let { tx ->
+                    changedTransactions += tx.id to tx.status
+                    dao.setStatus(tx.id, ReviewStatus.IGNORED.name)
+                }
+            }
+        }
+        setAside(message, MessageState.NOT_MONEY)
+        candidatesFor(rule, exclude = id).forEach { other ->
+            changedMessages += other.id to other.state
+            setAside(other, MessageState.HIDDEN)
+        }
+        return NotMoneyResult(ruleId, changedMessages, changedTransactions)
+    }
+
+    suspend fun undoNotMoney(result: NotMoneyResult) {
+        messageRules.delete(result.ruleId)
+        result.messages.forEach { (id, state) ->
+            val m = unreadMessages.get(id) ?: return@forEach
+            unreadMessages.setState(id, state, m.transactionId, dismissed = false)
+        }
+        result.transactions.forEach { (id, status) -> dao.setStatus(id, status) }
+    }
+
+    /** "Not a payment" on a captured payment: learns from its SMS when there is one. */
+    suspend fun markTransactionNotMoney(transactionId: Long): NotMoneyResult? {
+        unreadMessages.findByTransaction(transactionId)?.let { return markNotMoney(it.id) }
+        val previous = dao.get(transactionId)?.status ?: return null
+        dao.setStatus(transactionId, ReviewStatus.IGNORED.name)
+        return NotMoneyResult(ruleId = 0, messages = emptyList(), transactions = listOf(transactionId to previous))
+    }
+
+    /** Forgets a learned pattern; messages it hid are read again (their payments go back to review). */
+    suspend fun deleteRule(ruleId: Long) {
+        val rule = messageRules.getAll().firstOrNull { it.id == ruleId }?.toCore() ?: return
+        messageRules.delete(ruleId)
+        val remaining = messageRules.getAll().map { it.toCore() }
+        unreadMessages.getAll()
+            .filter { it.state == MessageState.HIDDEN || it.state == MessageState.NOT_MONEY }
+            .filter { m -> MessageRules.words(m.body).let { MessageRules.similarity(it, rule.words) >= MessageRules.SIMILARITY } }
+            .filter { m -> remaining.none { MessageRules.matches(it, m.sender, m.body, paymentLike = true) } }
+            .forEach { m -> rereadMessage(m) }
+    }
+
+    /** Puts a set-aside message back: its payment returns to review, or the message is read again. */
+    suspend fun rereadMessage(m: UnreadMessageEntity) {
+        val txId = m.transactionId
+        if (txId != null && dao.get(txId) != null) {
+            dao.setStatus(txId, ReviewStatus.PENDING.name)
+            unreadMessages.setState(m.id, MessageState.PAYMENT, txId, dismissed = false)
+            return
+        }
+        when (val reading = SmsParser.inspect(m.sender, m.body, m.receivedAt)) {
+            is SmsParser.Reading.Read -> {
+                val created = ingest(reading.parsed)
+                unreadMessages.setState(m.id, MessageState.PAYMENT, created?.id, dismissed = false)
+            }
+            is SmsParser.Reading.Unreadable -> unreadMessages.setState(m.id, MessageState.UNREAD, null, dismissed = false)
+            SmsParser.Reading.Skipped -> unreadMessages.setState(m.id, MessageState.SKIPPED, null, dismissed = false)
+        }
+    }
+
+    private suspend fun candidatesFor(rule: MessageRule, exclude: Long): List<UnreadMessageEntity> =
+        unreadMessages.getAll().filter { other ->
+            other.id != exclude &&
+                other.state in setOf(MessageState.UNREAD, MessageState.SKIPPED, MessageState.PAYMENT) &&
+                MessageRules.matches(rule, other.sender, other.body, paymentLike = other.state == MessageState.PAYMENT) &&
+                // Never hide a payment the user already reviewed.
+                (other.transactionId == null || dao.get(other.transactionId)?.status != ReviewStatus.REVIEWED.name)
+        }
 
     val budgets: Flow<List<Budget>> = budgetDao.observeAll().map { list -> list.map { it.toCore() } }
 
@@ -153,10 +305,12 @@ class TransactionRepository(
 
     /** Keeps a bank message the parser could not read, so the user can add it by hand. */
     suspend fun recordUnread(sender: String, body: String, receivedAt: Long, amountPaise: Long?) {
-        unreadMessages.insert(UnreadMessageEntity(sender = sender, body = body, receivedAt = receivedAt, amountPaise = amountPaise, dismissed = false))
+        unreadMessages.insert(
+            UnreadMessageEntity(sender = sender, body = body, receivedAt = receivedAt, amountPaise = amountPaise, dismissed = false, state = MessageState.UNREAD),
+        )
     }
 
-    suspend fun dismissUnread(id: Long) = unreadMessages.dismiss(id)
+    suspend fun dismissUnread(id: Long) = markNotMoney(id)
 
     /** Adds a payment the user read out of a message the parser could not understand. */
     suspend fun addFromMessage(
@@ -167,7 +321,7 @@ class TransactionRepository(
         category: Category,
     ) {
         val name = Merchants.tidy(payee).ifEmpty { "Unknown" }
-        dao.insert(
+        val id = dao.insert(
             Transaction(
                 amountPaise = amountPaise,
                 direction = direction,
@@ -180,7 +334,7 @@ class TransactionRepository(
                 status = ReviewStatus.REVIEWED,
             ).toEntity(),
         )
-        unreadMessages.dismiss(message.id)
+        unreadMessages.setState(message.id, MessageState.ADDED, id, dismissed = true)
     }
 
     /** "Yes, it's a copy": the newer record is ignored. */

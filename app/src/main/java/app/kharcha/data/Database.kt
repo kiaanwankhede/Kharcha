@@ -24,6 +24,8 @@ import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Confidence
 import app.kharcha.core.Direction
 import app.kharcha.core.Kind
+import app.kharcha.core.MessageRule
+import app.kharcha.core.MessageRules
 import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
 import app.kharcha.core.SplitCodec
@@ -56,7 +58,21 @@ data class TransactionEntity(
     val confidence: String?,
 )
 
-/** A bank message the parser could not read, kept so the user can add it by hand. */
+/** What happened to a bank message. */
+object MessageState {
+    const val PAYMENT = "PAYMENT"
+    const val UNREAD = "UNREAD"
+    const val SKIPPED = "SKIPPED"
+    const val BILL = "BILL"
+    const val NOT_MONEY = "NOT_MONEY"
+    const val HIDDEN = "HIDDEN"
+    const val ADDED = "ADDED"
+}
+
+/**
+ * Every message from a bank sender (never personal chats, never OTPs) and what the app did with it.
+ * The table name is from when it only held messages the parser couldn't read.
+ */
 @Entity(tableName = "unread_messages", indices = [Index(value = ["sender", "receivedAt"], unique = true)])
 data class UnreadMessageEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -65,7 +81,24 @@ data class UnreadMessageEntity(
     val receivedAt: Long,
     val amountPaise: Long?,
     val dismissed: Boolean,
+    @ColumnInfo(defaultValue = "UNREAD") val state: String = MessageState.UNREAD,
+    val transactionId: Long? = null,
 )
+
+/** A pattern the user taught: messages like this aren't money. */
+@Entity(tableName = "message_rules")
+data class MessageRuleEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val senderCode: String,
+    val words: String,
+    val coversPayments: Boolean,
+    val sample: String,
+    val createdAt: Long,
+)
+
+fun MessageRuleEntity.toCore() = MessageRule(id, senderCode, MessageRules.decode(words), coversPayments, sample, createdAt)
+
+fun MessageRule.toEntity() = MessageRuleEntity(id, senderCode, MessageRules.encode(words), coversPayments, sample, createdAtMillis)
 
 @Entity(tableName = "budgets")
 data class BudgetEntity(
@@ -281,14 +314,41 @@ interface CustomCategoryDao {
 
 @Dao
 interface UnreadMessageDao {
-    @Query("SELECT * FROM unread_messages WHERE dismissed = 0 ORDER BY receivedAt DESC")
+    @Query("SELECT * FROM unread_messages WHERE state = 'UNREAD' ORDER BY receivedAt DESC")
     fun observeOpen(): Flow<List<UnreadMessageEntity>>
+
+    @Query("SELECT * FROM unread_messages ORDER BY receivedAt DESC")
+    fun observeAll(): Flow<List<UnreadMessageEntity>>
+
+    @Query("SELECT * FROM unread_messages ORDER BY receivedAt DESC")
+    suspend fun getAll(): List<UnreadMessageEntity>
+
+    @Query("SELECT * FROM unread_messages WHERE id = :id")
+    suspend fun get(id: Long): UnreadMessageEntity?
+
+    @Query("SELECT * FROM unread_messages WHERE transactionId = :transactionId LIMIT 1")
+    suspend fun findByTransaction(transactionId: Long): UnreadMessageEntity?
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(message: UnreadMessageEntity): Long
 
-    @Query("UPDATE unread_messages SET dismissed = 1 WHERE id = :id")
-    suspend fun dismiss(id: Long)
+    @Query("UPDATE unread_messages SET state = :state, transactionId = :transactionId, dismissed = :dismissed WHERE id = :id")
+    suspend fun setState(id: Long, state: String, transactionId: Long?, dismissed: Boolean)
+}
+
+@Dao
+interface MessageRuleDao {
+    @Query("SELECT * FROM message_rules ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<MessageRuleEntity>>
+
+    @Query("SELECT * FROM message_rules")
+    suspend fun getAll(): List<MessageRuleEntity>
+
+    @Insert
+    suspend fun insert(rule: MessageRuleEntity): Long
+
+    @Query("DELETE FROM message_rules WHERE id = :id")
+    suspend fun delete(id: Long)
 }
 
 @Dao
@@ -340,8 +400,9 @@ interface CardBillDao {
     entities = [
         TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class,
         UnreadMessageEntity::class, PayeeNameEntity::class, BudgetEntity::class, CardBillEntity::class,
+        MessageRuleEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
@@ -352,6 +413,7 @@ abstract class KharchaDatabase : RoomDatabase() {
     abstract fun payeeNames(): PayeeNameDao
     abstract fun budgets(): BudgetDao
     abstract fun cardBills(): CardBillDao
+    abstract fun messageRules(): MessageRuleDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -424,9 +486,22 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // Every bank message with what happened to it, and the patterns the user taught.
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `unread_messages` ADD COLUMN `state` TEXT NOT NULL DEFAULT 'UNREAD'")
+                db.execSQL("ALTER TABLE `unread_messages` ADD COLUMN `transactionId` INTEGER")
+                db.execSQL("UPDATE `unread_messages` SET `state` = 'NOT_MONEY' WHERE `dismissed` = 1")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `message_rules` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `senderCode` TEXT NOT NULL, " +
+                        "`words` TEXT NOT NULL, `coversPayments` INTEGER NOT NULL, `sample` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+                )
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .build()
     }
 }

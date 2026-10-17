@@ -164,6 +164,14 @@ object SmsParser {
         )
     }
 
+    private val OTP = Regex("""\botp\b|one.time.password|verification code|\bcvv\b|\bmpin\b""", RegexOption.IGNORE_CASE)
+
+    /** OTPs and codes are never stored or shown, not even in the message list. */
+    fun isOtp(body: String): Boolean = OTP.containsMatchIn(body)
+
+    /** "AX-HDFCBK-S" -> "HDFCBK"; null for phone numbers. */
+    fun senderCodeOf(sender: String): String? = senderCode(sender)
+
     /** The bank name for a sender like "AX-HDFCBK-S", if it is a known bank. */
     fun bankOf(sender: String): String? = senderCode(sender)?.let(::bankFor)
 
