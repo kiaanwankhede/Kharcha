@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A rupee sign on an orange tile, inside the 108dp adaptive-icon canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#B84D1C"
+        android:pathData="M38,34h32a4,4 0,0 1,4 4v32a4,4 0,0 1,-4 4h-32a4,4 0,0 1,-4 -4v-32a4,4 0,0 1,4 -4z" />
+    <path
+        android:fillColor="#FDFCF9"
+        android:pathData="M44,41h20v4h-6.2c1.1,1 1.9,2.3 2.2,3.8h4v4h-4c-0.6,3.6 -3.6,6.2 -7.6,6.6l10.4,10.6h-5.6l-10,-10.2v-3.8h3.6c2.4,0 4.4,-1.4 4.9,-3.2h-8.5v-4h8.5c-0.5,-1.8 -2.5,-3.8 -4.9,-3.8h-3.6z" />
+</vector>

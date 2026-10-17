@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android's own Google backup (Android 11 and lower). The passphrase is tied to this phone's
+     keystore and cannot be restored elsewhere, so it is left out. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="kharcha_secure.xml" />
+</full-backup-content>

@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Kharcha</string>
+    <string name="notification_listener_label">Kharcha payment alerts</string>
+</resources>
