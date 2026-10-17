@@ -13,9 +13,13 @@ import app.kharcha.data.TransactionRepository
 import app.kharcha.notify.Notifications
 import app.kharcha.notify.BillReminderWorker
 import app.kharcha.notify.ReviewReminderWorker
+import app.kharcha.widget.DeckWidgetProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
 class KharchaApplication : Application() {
@@ -37,12 +41,26 @@ class KharchaApplication : Application() {
                 }
             }
         }
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { container.repository.migrateToCategoryTree() }
+        container.scope.launch { container.repository.migrateToCategoryTree() }
+        keepWidgetFresh()
+    }
+
+    /** Redraws the home-screen deck whenever payments, budgets, bills or the monthly limit change. */
+    @OptIn(FlowPreview::class)
+    private fun keepWidgetFresh() {
+        val repository = container.repository
+        container.scope.launch {
+            combine(repository.transactions, repository.budgets, repository.cardBills, container.prefs.monthlyLimit) { _, _, _, _ -> }
+                .debounce(1_000)
+                .collect { DeckWidgetProvider.refresh(this@KharchaApplication) }
+        }
     }
 }
 
 /** The app's shared objects, created once. */
 class AppContainer(context: Context) {
+    /** For work that should outlive a screen, like accepting a payment from the widget. */
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val prefs = Prefs(context)
     val passphrases = PassphraseStore(context)
     private val database = KharchaDatabase.create(context)

@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget card: the budgets closest to their limit. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/card"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_card_bg"
+    android:orientation="vertical"
+    android:paddingHorizontal="20dp"
+    android:paddingVertical="16dp">
+
+    <TextView
+        style="@style/WidgetTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Budgets" />
+
+    <LinearLayout
+        android:id="@+id/budget_row1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/budget_label1"
+                style="@style/WidgetLabel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/widget_text" />
+
+            <TextView
+                android:id="@+id/budget_amount1"
+                style="@style/WidgetLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/budget_bar1"
+            style="@style/WidgetBar"
+            android:layout_width="match_parent"
+            android:layout_height="7dp"
+            android:layout_marginTop="4dp" />
+
+        <ProgressBar
+            android:id="@+id/budget_bar_warn1"
+            style="@style/WidgetBar"
+            android:layout_width="match_parent"
+            android:layout_height="7dp"
+            android:layout_marginTop="4dp"
+            android:progressDrawable="@drawable/widget_bar_orange"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/budget_row2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/budget_label2"
+                style="@style/WidgetLabel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/widget_text" />
+
+            <TextView
+                android:id="@+id/budget_amount2"
+                style="@style/WidgetLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/budget_bar2"
+            style="@style/WidgetBar"
+            android:layout_width="match_parent"
+            android:layout_height="7dp"
+            android:layout_marginTop="4dp" />
+
+        <ProgressBar
+            android:id="@+id/budget_bar_warn2"
+            style="@style/WidgetBar"
+            android:layout_width="match_parent"
+            android:layout_height="7dp"
+            android:layout_marginTop="4dp"
+            android:progressDrawable="@drawable/widget_bar_orange"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/budget_row3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/budget_label3"
+                style="@style/WidgetLabel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/widget_text" />
+
+            <TextView
+                android:id="@+id/budget_amount3"
+                style="@style/WidgetLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/budget_bar3"
+            style="@style/WidgetBar"
+            android:layout_width="match_parent"
+            android:layout_height="7dp"
+            android:layout_marginTop="4dp" />
+
+        <ProgressBar
+            android:id="@+id/budget_bar_warn3"
+            style="@style/WidgetBar"
+            android:layout_width="match_parent"
+            android:layout_height="7dp"
+            android:layout_marginTop="4dp"
+            android:progressDrawable="@drawable/widget_bar_orange"
+            android:visibility="gone" />
+    </LinearLayout>
+</LinearLayout>

@@ -23,6 +23,8 @@ import app.kharcha.ui.LockScreen
 class MainActivity : FragmentActivity() {
     private var unlocked by mutableStateOf(false)
     private var openReviewRequest by mutableIntStateOf(0)
+    private var addCashRequest by mutableIntStateOf(0)
+    private var openRequest by mutableStateOf(OpenRequest())
     private var stoppedAt = 0L
     private lateinit var prompt: BiometricPrompt
 
@@ -49,7 +51,13 @@ class MainActivity : FragmentActivity() {
                 if (container.prefs.lockEnabled && !unlocked) {
                     LockScreen(onUnlock = ::authenticate)
                 } else {
-                    AppRoot(container, startWithOnboarding = !container.prefs.onboarded, openReviewRequest = openReviewRequest)
+                    AppRoot(
+                        container,
+                        startWithOnboarding = !container.prefs.onboarded,
+                        openReviewRequest = openReviewRequest,
+                        addCashRequest = addCashRequest,
+                        openRequest = openRequest,
+                    )
                 }
             }
         }
@@ -64,6 +72,17 @@ class MainActivity : FragmentActivity() {
         if (intent?.getBooleanExtra(Notifications.EXTRA_OPEN_REVIEW, false) == true) {
             openReviewRequest++
             intent.removeExtra(Notifications.EXTRA_OPEN_REVIEW)
+        }
+        if (intent?.getBooleanExtra(OpenRequest.ADD_CASH, false) == true) {
+            addCashRequest++
+            intent.removeExtra(OpenRequest.ADD_CASH)
+        }
+        val tab = intent?.getStringExtra(OpenRequest.TAB)
+        val route = intent?.getStringExtra(OpenRequest.ROUTE)
+        if (tab != null || route != null) {
+            openRequest = OpenRequest(openRequest.count + 1, tab, route)
+            intent?.removeExtra(OpenRequest.TAB)
+            intent?.removeExtra(OpenRequest.ROUTE)
         }
     }
 
@@ -95,5 +114,17 @@ class MainActivity : FragmentActivity() {
     private companion object {
         const val KEY_UNLOCKED = "unlocked"
         const val RELOCK_AFTER_MILLIS = 60_000L
+    }
+}
+
+/**
+ * A request from outside the app (the widget, the Quick Settings tile) to open a tab or a screen.
+ * [count] goes up with each request so the same place can be asked for twice.
+ */
+data class OpenRequest(val count: Int = 0, val tab: String? = null, val route: String? = null) {
+    companion object {
+        const val ADD_CASH = "add_cash"
+        const val TAB = "open_tab"
+        const val ROUTE = "open_route"
     }
 }

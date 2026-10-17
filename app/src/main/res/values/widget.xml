@@ -1,0 +1,34 @@
+<resources>
+    <string name="deck_widget_description">Swipe through what needs review, safe to spend, today, this month, budgets and upcoming bills</string>
+    <string name="cash_tile_label">Add cash</string>
+
+    <color name="widget_text">#EEF1F6</color>
+    <color name="widget_muted">#B4BCCB</color>
+    <color name="widget_warn">#F08A5D</color>
+    <color name="widget_link">#7DB0F0</color>
+    <color name="widget_ink">#0E1525</color>
+
+    <style name="Theme.Kharcha.Trampoline" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <style name="WidgetLabel">
+        <item name="android:textColor">@color/widget_muted</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="WidgetTitle">
+        <item name="android:textColor">@color/widget_text</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="WidgetBar" parent="android:Widget.Material.ProgressBar.Horizontal">
+        <item name="android:max">100</item>
+        <item name="android:progressDrawable">@drawable/widget_bar_blue</item>
+    </style>
+</resources>

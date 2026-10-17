@@ -41,6 +41,42 @@
             android:name=".notify.ReviewActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".widget.DeckWidgetProvider"
+            android:exported="false"
+            android:label="Kharcha deck">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/deck_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".widget.DeckWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <activity
+            android:name=".widget.WidgetActionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Kharcha.Trampoline" />
+
+        <service
+            android:name=".widget.CashTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_rupee"
+            android:label="@string/cash_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".capture.PaymentNotificationListener"
             android:exported="true"

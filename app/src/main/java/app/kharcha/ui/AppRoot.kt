@@ -39,15 +39,29 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.kharcha.AppContainer
+import app.kharcha.OpenRequest
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.launch
 
-/** [openReviewRequest] goes up by one each time a notification asks to open the review inbox. */
+/**
+ * [openReviewRequest] goes up by one each time a notification asks to open the review inbox, and
+ * [addCashRequest] each time the widget or the Quick Settings tile asks to add cash.
+ */
 @Composable
-fun AppRoot(container: AppContainer, startWithOnboarding: Boolean, openReviewRequest: Int = 0) {
+fun AppRoot(
+    container: AppContainer,
+    startWithOnboarding: Boolean,
+    openReviewRequest: Int = 0,
+    addCashRequest: Int = 0,
+    openRequest: OpenRequest = OpenRequest(),
+) {
     val nav = rememberNavController()
+    LaunchedEffect(openRequest.count) {
+        val route = openRequest.route
+        if (openRequest.count > 0 && route != null && container.prefs.onboarded) nav.navigate(route) { launchSingleTop = true }
+    }
     NavHost(nav, startDestination = if (startWithOnboarding) "onboarding" else "main") {
         composable("onboarding") {
             OnboardingScreen(container) {
@@ -59,6 +73,8 @@ fun AppRoot(container: AppContainer, startWithOnboarding: Boolean, openReviewReq
             MainScreen(
                 container,
                 openReviewRequest = openReviewRequest,
+                addCashRequest = addCashRequest,
+                openTabRequest = openRequest,
                 openTransaction = { id -> nav.navigate("transaction/$id") },
                 openRoute = { route -> nav.navigate(route) },
             )
@@ -96,6 +112,8 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 private fun MainScreen(
     container: AppContainer,
     openReviewRequest: Int,
+    addCashRequest: Int,
+    openTabRequest: OpenRequest,
     openTransaction: (Long) -> Unit,
     openRoute: (String) -> Unit,
 ) {
@@ -144,6 +162,12 @@ private fun MainScreen(
 
     LaunchedEffect(openReviewRequest) {
         if (openReviewRequest > 0) tab = Tab.REVIEW
+    }
+    LaunchedEffect(addCashRequest) {
+        if (addCashRequest > 0) addingCash = true
+    }
+    LaunchedEffect(openTabRequest.count) {
+        if (openTabRequest.count > 0) Tab.entries.firstOrNull { it.name.equals(openTabRequest.tab, ignoreCase = true) }?.let { tab = it }
     }
 
     Scaffold(

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The deck: a stack of cards you swipe up and down; the launcher also flips it by itself. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <StackView
+        android:id="@+id/deck"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:loopViews="true" />
+
+    <TextView
+        android:id="@+id/deck_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/widget_card_bg"
+        android:gravity="center"
+        android:padding="16dp"
+        android:text="Open Kharcha to get started"
+        android:textColor="@color/widget_text"
+        android:textSize="15sp" />
+</FrameLayout>
