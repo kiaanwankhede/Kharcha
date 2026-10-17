@@ -236,6 +236,22 @@ fun HomeScreen(
                     }
                 }
             }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("🤝" to "people" to "Lent", "🏖️" to "trips" to "Trips", "🧾" to "reimburse" to "Office", "🎯" to "goals" to "Goals")
+                        .forEach { (pair, label) ->
+                            Panel(
+                                Modifier
+                                    .weight(1f)
+                                    .clickable { onOpenRoute(pair.second) },
+                                color = Sand,
+                            ) {
+                                Text(pair.first, style = MaterialTheme.typography.titleLarge)
+                                Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            }
+                        }
+                }
+            }
             if (accountCount > 0) {
                 item {
                     Panel(Modifier.clickable { onOpenRoute("accounts") }, color = Sand) {

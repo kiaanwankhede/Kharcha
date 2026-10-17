@@ -18,6 +18,9 @@ enum class ReviewStatus { PENDING, REVIEWED, IGNORED }
  */
 enum class Confidence { SURE, LIKELY, GUESS }
 
+/** A payment someone else will pay back: still waiting, or paid back. */
+enum class Reimburse { PENDING, DONE }
+
 /** What a parser could read out of one message, before merchant cleanup and categorisation. */
 data class ParsedTransaction(
     val amountPaise: Long,
@@ -64,8 +67,15 @@ data class Transaction(
     /** When set, the payment counts as these parts instead of as one amount in [category]. */
     val splits: List<SplitPart> = emptyList(),
     val confidence: Confidence = Confidence.SURE,
+    /** The user's own labels, like a trip name. Lower-case, no commas. */
+    val tags: List<String> = emptyList(),
+    /** Set when the office (or someone else) will pay this back; such payments are not your spending. */
+    val reimburse: Reimburse? = null,
 ) {
-    val isSpend: Boolean get() = direction == Direction.DEBIT && category.countsAsSpend
+    /** Spending by its category, before taking out reimbursable payments. */
+    private val spendCategory: Boolean get() = direction == Direction.DEBIT && category.countsAsSpend
+
+    val isSpend: Boolean get() = spendCategory && reimburse == null
 
     /** Money back from a merchant, filed under a spending category: it reduces that category's spend. */
     val isRefund: Boolean get() = direction == Direction.CREDIT && category.kind == Kind.SPENDING
@@ -82,7 +92,7 @@ data class Transaction(
 
     val isCashWithdrawal: Boolean get() = direction == Direction.DEBIT && category.id == Category.CASH.id
 
-    val isLoggedCash: Boolean get() = source == Source.MANUAL && isSpend
+    val isLoggedCash: Boolean get() = source == Source.MANUAL && spendCategory
 
     val isWalletTopUp: Boolean get() = direction == Direction.DEBIT && category.id == Category.WALLET.id
 
@@ -90,5 +100,5 @@ data class Transaction(
      * A payment seen only as an app notification, with no bank SMS behind it: it was paid from a wallet
      * or UPI Lite balance, so it is spending of money that was topped up earlier.
      */
-    val isWalletSpend: Boolean get() = source == Source.NOTIFICATION && isSpend
+    val isWalletSpend: Boolean get() = source == Source.NOTIFICATION && spendCategory
 }

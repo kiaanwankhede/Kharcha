@@ -12,6 +12,12 @@ import app.kharcha.core.Classifier
 import app.kharcha.core.Confidence
 import app.kharcha.core.Deduplicator
 import app.kharcha.core.Direction
+import app.kharcha.core.Event
+import app.kharcha.core.Events
+import app.kharcha.core.Goal
+import app.kharcha.core.People
+import app.kharcha.core.Reimburse
+import app.kharcha.core.Tags
 import app.kharcha.core.CardBills
 import app.kharcha.core.Merchants
 import app.kharcha.core.MessageRule
@@ -45,6 +51,8 @@ class TransactionRepository(
     private val payeeNames = db.payeeNames()
     private val budgetDao = db.budgets()
     private val cardBillDao = db.cardBills()
+    private val eventDao = db.events()
+    private val goalDao = db.goals()
 
     /** Called with budgets that just crossed 80% or 100% after a payment was reviewed. */
     var onBudgetStatus: (List<BudgetStatus>) -> Unit = {}
@@ -267,12 +275,13 @@ class TransactionRepository(
             parsed
         }
         val classified = Classifier(currentRules(catalog), currentPayeeNames()).classify(named)
-        val incoming = if (classified.category.id == Category.REFUNDS.id) {
+        val refundChecked = if (classified.category.id == Category.REFUNDS.id) {
             val history = dao.findSince(classified.timestampMillis - Refunds.LOOKBACK_MILLIS).map { it.toCore(catalog) }
             Refunds.categorise(classified, history)
         } else {
             classified
         }
+        val incoming = withPeopleAndTrips(refundChecked, catalog)
         val candidates = buildList {
             incoming.reference?.let { addAll(dao.findByReference(it)) }
             addAll(
@@ -302,6 +311,77 @@ class TransactionRepository(
             saved.copy(id = dao.insert(saved.toEntity()))
         }
     }
+
+    /**
+     * Money from someone who owes you becomes "Paid back to me" (and money to someone you owe, "Paying
+     * back"), and payments during a trip get the trip's tag.
+     */
+    private suspend fun withPeopleAndTrips(t: Transaction, catalog: CategoryCatalog): Transaction {
+        val ledger = People.ledger(dao.findByMerchantKey(t.merchantKey).map { it.toCore(catalog) })
+        val settled = People.suggest(t, ledger)?.let { t.copy(category = it, confidence = Confidence.LIKELY) } ?: t
+        val date = java.time.Instant.ofEpochMilli(t.timestampMillis).atZone(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate()
+        val tripTags = if (t.direction == Direction.DEBIT) Events.autoTags(eventDao.getAll().map { it.toCore() }, date) else emptyList()
+        return if (tripTags.isEmpty()) settled else settled.copy(tags = (settled.tags + tripTags).distinct())
+    }
+
+    val events: Flow<List<Event>> = eventDao.observeAll().map { list -> list.map { it.toCore() } }
+
+    val goals: Flow<List<Goal>> = goalDao.observeAll().map { list -> list.map { it.toCore() } }
+
+    /** Saves a trip and, when [tagExisting], tags the payments already made in its dates. */
+    suspend fun saveEvent(event: Event, tagExisting: Boolean) {
+        val previous = event.id.takeIf { it > 0 }?.let { id -> eventDao.getAll().firstOrNull { it.id == id }?.toCore() }
+        eventDao.upsert(event.toEntity())
+        // Renamed: move the old tag over to the new name.
+        if (previous != null && previous.tag != event.tag) {
+            allTransactions().filter { previous.tag in it.tags }.forEach { t ->
+                dao.update(t.copy(tags = t.tags.map { if (it == previous.tag) event.tag else it }).toEntity())
+            }
+        }
+        if (tagExisting) {
+            val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+            Events.untaggedInRange(event, allTransactions(), today).forEach { t -> dao.update(t.copy(tags = t.tags + event.tag).toEntity()) }
+        }
+    }
+
+    suspend fun deleteEvent(event: Event) {
+        eventDao.delete(event.id)
+        allTransactions().filter { event.tag in it.tags }.forEach { t -> dao.update(t.copy(tags = t.tags - event.tag).toEntity()) }
+    }
+
+    suspend fun setTags(id: Long, tags: List<String>) {
+        val existing = dao.get(id) ?: return
+        dao.update(existing.copy(tags = Tags.encode(tags)))
+    }
+
+    /** Marks a payment as one the office will pay back (or not), taking it out of (or back into) spending. */
+    suspend fun setReimburse(id: Long, reimburse: Reimburse?) {
+        val existing = dao.get(id) ?: return
+        dao.update(existing.copy(reimburse = reimburse?.name))
+    }
+
+    suspend fun markReimbursed(ids: Collection<Long>) = ids.forEach { setReimburse(it, Reimburse.DONE) }
+
+    /** Records settling up in cash or outside the bank: they paid you back, or you paid them back. */
+    suspend fun addSettlement(personKey: String, name: String, amountPaise: Long, theyPaidMe: Boolean) {
+        dao.insert(
+            Transaction(
+                amountPaise = amountPaise,
+                direction = if (theyPaidMe) Direction.CREDIT else Direction.DEBIT,
+                timestampMillis = System.currentTimeMillis(),
+                merchant = name,
+                merchantKey = personKey,
+                category = if (theyPaidMe) Category.PAID_BACK else Category.REPAYING,
+                source = Source.MANUAL,
+                rawText = "Settled up, added by hand",
+                status = ReviewStatus.REVIEWED,
+            ).toEntity(),
+        )
+    }
+
+    suspend fun saveGoal(goal: Goal) = goalDao.upsert(goal.toEntity())
+
+    suspend fun deleteGoal(id: Long) = goalDao.delete(id)
 
     /** Keeps a bank message the parser could not read, so the user can add it by hand. */
     suspend fun recordUnread(sender: String, body: String, receivedAt: Long, amountPaise: Long?) {

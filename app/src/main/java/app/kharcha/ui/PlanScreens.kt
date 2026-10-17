@@ -62,7 +62,7 @@ private fun shortDate(d: LocalDate, today: LocalDate): String = when (ChronoUnit
 }
 
 @Composable
-private fun BackHeader(title: String, onBack: () -> Unit, subtitle: String? = null) {
+fun BackHeader(title: String, onBack: () -> Unit, subtitle: String? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         TextButton(onClick = onBack) { Text("‹ Back") }
         Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)

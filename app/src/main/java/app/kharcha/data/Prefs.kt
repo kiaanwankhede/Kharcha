@@ -93,4 +93,13 @@ class Prefs(context: Context) {
     var lockEnabled: Boolean
         get() = prefs.getBoolean("lock_enabled", false)
         set(value) = prefs.edit { putBoolean("lock_enabled", value) }
+
+    /** Your own UPI ID, put in "please pay me back" messages. */
+    var myUpiId: String?
+        get() = prefs.getString("my_upi_id", null)?.takeIf { it.isNotBlank() }
+        set(value) = prefs.edit { putString("my_upi_id", value?.trim()) }
+
+    var myName: String?
+        get() = prefs.getString("my_name", null)?.takeIf { it.isNotBlank() }
+        set(value) = prefs.edit { putString("my_name", value?.trim()) }
 }

@@ -23,12 +23,16 @@ import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Confidence
 import app.kharcha.core.Direction
+import app.kharcha.core.Event
+import app.kharcha.core.Goal
 import app.kharcha.core.Kind
 import app.kharcha.core.MessageRule
 import app.kharcha.core.MessageRules
+import app.kharcha.core.Reimburse
 import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
 import app.kharcha.core.SplitCodec
+import app.kharcha.core.Tags
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.flow.Flow
 
@@ -56,6 +60,8 @@ data class TransactionEntity(
     val possibleDuplicateOf: Long?,
     val splitsJson: String?,
     val confidence: String?,
+    val tags: String? = null,
+    val reimburse: String? = null,
 )
 
 /** What happened to a bank message. */
@@ -132,6 +138,38 @@ fun CardBillEntity.toCore() = CardBill(id, bank, last4, totalDuePaise, minDuePai
 
 fun CardBill.toEntity() = CardBillEntity(id, bank, last4, totalDuePaise, minDuePaise, dueDate.toString(), receivedAtMillis, rawText, paidManually)
 
+/** A trip or occasion; its payments carry its name as a tag. Dates are ISO strings. */
+@Entity(tableName = "events")
+data class EventEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val emoji: String,
+    val start: String,
+    val end: String?,
+)
+
+fun EventEntity.toCore() = Event(id, name, emoji, java.time.LocalDate.parse(start), end?.let(java.time.LocalDate::parse))
+
+fun Event.toEntity() = EventEntity(id, name, emoji, start.toString(), end?.toString())
+
+@Entity(tableName = "goals")
+data class GoalEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val emoji: String,
+    val targetPaise: Long,
+    val deadline: String?,
+    val addedPaise: Long,
+    val linkedCategoryId: String?,
+    val createdOn: String,
+)
+
+fun GoalEntity.toCore() = Goal(
+    id, name, emoji, targetPaise, deadline?.let(java.time.LocalDate::parse), addedPaise, linkedCategoryId, java.time.LocalDate.parse(createdOn),
+)
+
+fun Goal.toEntity() = GoalEntity(id, name, emoji, targetPaise, deadline?.toString(), addedPaise, linkedCategoryId, createdOn.toString())
+
 /** The name the user gave a payee; future payments to the same payee use it too. */
 @Entity(tableName = "payee_names")
 data class PayeeNameEntity(
@@ -183,6 +221,8 @@ fun TransactionEntity.toCore(catalog: CategoryCatalog) = Transaction(
     possibleDuplicateOf = possibleDuplicateOf,
     splits = SplitCodec.decode(splitsJson, catalog::byId),
     confidence = confidence?.let { runCatching { Confidence.valueOf(it) }.getOrNull() } ?: Confidence.SURE,
+    tags = Tags.decode(tags),
+    reimburse = reimburse?.let { runCatching { Reimburse.valueOf(it) }.getOrNull() },
 )
 
 fun Transaction.toEntity() = TransactionEntity(
@@ -205,6 +245,8 @@ fun Transaction.toEntity() = TransactionEntity(
     possibleDuplicateOf = possibleDuplicateOf,
     splitsJson = SplitCodec.encode(splits),
     confidence = confidence.name,
+    tags = Tags.encode(tags),
+    reimburse = reimburse?.name,
 )
 
 @Dao
@@ -396,13 +438,40 @@ interface CardBillDao {
     suspend fun setPaid(id: Long, paid: Boolean)
 }
 
+@Dao
+interface EventDao {
+    @Query("SELECT * FROM events ORDER BY start DESC")
+    fun observeAll(): Flow<List<EventEntity>>
+
+    @Query("SELECT * FROM events")
+    suspend fun getAll(): List<EventEntity>
+
+    @Upsert
+    suspend fun upsert(event: EventEntity): Long
+
+    @Query("DELETE FROM events WHERE id = :id")
+    suspend fun delete(id: Long)
+}
+
+@Dao
+interface GoalDao {
+    @Query("SELECT * FROM goals ORDER BY createdOn")
+    fun observeAll(): Flow<List<GoalEntity>>
+
+    @Upsert
+    suspend fun upsert(goal: GoalEntity): Long
+
+    @Query("DELETE FROM goals WHERE id = :id")
+    suspend fun delete(id: Long)
+}
+
 @Database(
     entities = [
         TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class,
         UnreadMessageEntity::class, PayeeNameEntity::class, BudgetEntity::class, CardBillEntity::class,
-        MessageRuleEntity::class,
+        MessageRuleEntity::class, EventEntity::class, GoalEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
@@ -414,6 +483,8 @@ abstract class KharchaDatabase : RoomDatabase() {
     abstract fun budgets(): BudgetDao
     abstract fun cardBills(): CardBillDao
     abstract fun messageRules(): MessageRuleDao
+    abstract fun events(): EventDao
+    abstract fun goals(): GoalDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -499,9 +570,26 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // Tags and reimbursements on payments; trips and savings goals.
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `tags` TEXT")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `reimburse` TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `events` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`emoji` TEXT NOT NULL, `start` TEXT NOT NULL, `end` TEXT)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `goals` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`emoji` TEXT NOT NULL, `targetPaise` INTEGER NOT NULL, `deadline` TEXT, `addedPaise` INTEGER NOT NULL, " +
+                        "`linkedCategoryId` TEXT, `createdOn` TEXT NOT NULL)",
+                )
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .build()
     }
 }

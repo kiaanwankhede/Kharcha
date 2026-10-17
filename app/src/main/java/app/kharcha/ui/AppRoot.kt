@@ -91,6 +91,18 @@ fun AppRoot(
         composable("upcoming") {
             UpcomingScreen(container, onBack = { nav.popBackStack() })
         }
+        composable("people") {
+            PeopleScreen(container, onBack = { nav.popBackStack() }, onTransaction = { id -> nav.navigate("transaction/$id") })
+        }
+        composable("trips") {
+            TripsScreen(container, onBack = { nav.popBackStack() }, onTransaction = { id -> nav.navigate("transaction/$id") })
+        }
+        composable("reimburse") {
+            ReimburseScreen(container, onBack = { nav.popBackStack() }, onTransaction = { id -> nav.navigate("transaction/$id") })
+        }
+        composable("goals") {
+            GoalsScreen(container, onBack = { nav.popBackStack() })
+        }
         composable("categories") {
             CategoriesScreen(container, onBack = { nav.popBackStack() })
         }

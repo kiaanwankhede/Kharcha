@@ -119,6 +119,8 @@ data class Category(
         val PEOPLE = sub(G_PEOPLE, "people.friends", "Sent to friends", "🧑‍🤝‍🧑")
         /** Money lent is expected back, so it is not spending. */
         val LENT = sub(G_PEOPLE, "people.lent", "Lent (to get back)", "🤝", Kind.MOVEMENT)
+        /** Paying back money borrowed earlier: settles a debt, not spending. */
+        val REPAYING = sub(G_PEOPLE, "people.repay", "Paying back what I borrowed", "↪️", Kind.MOVEMENT)
 
         val PUJA = sub(G_GIVING, "giving.puja", "Puja & temple", "🪔")
         val FESTIVALS = sub(G_GIVING, "giving.festivals", "Festivals", "🎆")
@@ -162,6 +164,10 @@ data class Category(
         val INTEREST = sub(G_INCOME, "in.interest", "Interest & dividends", "💹")
         val RECEIVED = sub(G_INCOME, "in.received", "Received from people", "🤲")
         val BORROWED = sub(G_INCOME, "in.borrowed", "Borrowed (to repay)", "🫴", Kind.MOVEMENT)
+        /** Money lent earlier coming back: settles a loan, not income. */
+        val PAID_BACK = sub(G_INCOME, "in.paidback", "Paid back to me", "🔁", Kind.MOVEMENT)
+        /** The office paying back expenses marked for reimbursement: not income. */
+        val REIMBURSED = sub(G_INCOME, "in.reimbursed", "Reimbursement received", "🧾", Kind.MOVEMENT)
         val INCOME = sub(G_INCOME, "in.other", "Other income", "💰")
 
         val GROUPS: List<Category> = listOf(
@@ -181,13 +187,13 @@ data class Category(
             OTT, MOVIES, GAMES, OUTINGS,
             FLIGHTS, TRAINS, BUSES, HOTELS, HOLIDAY,
             SCHOOL_FEES, TUITION, COURSES, STATIONERY,
-            FAMILY, KIDS, PETS, PEOPLE, LENT,
+            FAMILY, KIDS, PETS, PEOPLE, LENT, REPAYING,
             PUJA, FESTIVALS, CHARITY, WEDDINGS,
             EMI, CARD_CHARGES, BANK_FEES, TAXES, INSURANCE,
             OTHER,
             MUTUAL_FUNDS, STOCKS, DEPOSITS, RETIREMENT, GOLD,
             TRANSFER, CARD_BILL, WALLET, CASH,
-            SALARY, REFUNDS, INTEREST, RECEIVED, BORROWED, INCOME,
+            SALARY, REFUNDS, INTEREST, RECEIVED, BORROWED, PAID_BACK, REIMBURSED, INCOME,
         )
 
         /** Summary-only rows; never picked by hand. */

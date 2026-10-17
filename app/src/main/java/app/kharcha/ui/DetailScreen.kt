@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -39,6 +42,8 @@ import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
 import app.kharcha.core.Merchants
 import app.kharcha.core.Money
+import app.kharcha.core.Reimburse
+import app.kharcha.core.Tags
 import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
 import kotlinx.coroutines.launch
@@ -57,6 +62,7 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
     var renaming by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var splitting by remember { mutableStateOf(false) }
+    var tagging by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -113,6 +119,40 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
         }
 
         Panel(color = Sand) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Tags", Modifier.weight(1f), color = Muted)
+                TextButton(onClick = { tagging = true }) { Text("＋ Tag") }
+            }
+            if (txn.tags.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    txn.tags.forEach { tag ->
+                        AssistChip(onClick = { scope.launch { repository.setTags(txn.id, txn.tags - tag) } }, label = { Text("$tag  ✕") })
+                    }
+                }
+            }
+            if (txn.direction == Direction.DEBIT) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Office will pay this back", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            when (txn.reimburse) {
+                                Reimburse.PENDING -> "Not counted as your spending · waiting"
+                                Reimburse.DONE -> "Not counted as your spending · paid back ✓"
+                                null -> "Takes it out of your spending"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Faint,
+                        )
+                    }
+                    Switch(
+                        checked = txn.reimburse != null,
+                        onCheckedChange = { on -> scope.launch { repository.setReimburse(txn.id, if (on) Reimburse.PENDING else null) } },
+                    )
+                }
+            }
+        }
+
+        Panel(color = Sand) {
             Detail("Account", listOfNotNull(txn.bank, txn.accountLast4?.let { "··$it" }).joinToString(" ").ifEmpty { "—" })
             txn.vpa?.let { Detail("UPI ID", it) }
             txn.reference?.let { Detail("UPI reference", it) }
@@ -131,7 +171,7 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             value = note,
             onValueChange = { note = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Note or tag") },
+            label = { Text("Note") },
         )
         OutlinedButton(onClick = { scope.launch { repository.setNote(txn.id, note) } }) { Text("Save note") }
 
@@ -205,6 +245,30 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
                     splitting = false
                     scope.launch { repository.setSplits(txn.id, parts) }
                 },
+            )
+        }
+
+        if (tagging) {
+            val everything by repository.transactions.collectAsStateWithLifecycle(initialValue = emptyList())
+            val known = remember(everything) { Tags.inUse(everything) }
+            var text by remember { mutableStateOf("") }
+            val add = { tag: String ->
+                tagging = false
+                scope.launch { repository.setTags(txn.id, txn.tags + tag) }
+                Unit
+            }
+            AlertDialog(
+                onDismissRequest = { tagging = false },
+                title = { Text("Add a tag") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(text, { text = it.replace(",", "").take(30) }, label = { Text("Tag (like office, goa trip)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        val suggestions = known.filter { it !in txn.tags && it.contains(Tags.clean(text)) }.take(6)
+                        suggestions.forEach { tag -> TextButton(onClick = { add(tag) }) { Text("# $tag") } }
+                    }
+                },
+                confirmButton = { TextButton(enabled = Tags.clean(text).isNotEmpty(), onClick = { add(Tags.clean(text)) }) { Text("Add") } },
+                dismissButton = { TextButton(onClick = { tagging = false }) { Text("Cancel") } },
             )
         }
 
