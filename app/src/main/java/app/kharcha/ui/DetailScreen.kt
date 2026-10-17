@@ -81,7 +81,7 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
                     TextButton(onClick = { menuOpen = true }) {
                         Column(horizontalAlignment = Alignment.End) {
                             Text("${txn.category.emoji} ${txn.category.label}  ▾", fontWeight = FontWeight.Bold)
-                            Text(Category.groupOf(txn.category).label, style = MaterialTheme.typography.bodySmall, color = Faint)
+                            Text(catalog.groupOf(txn.category).label, style = MaterialTheme.typography.bodySmall, color = Faint)
                         }
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -157,7 +157,8 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             CategoryEditorDialog(
                 initial = null,
                 onDismiss = { creatingCategory = false },
-                defaultGroup = Category.groupOf(txn.category),
+                defaultGroup = catalog.groupOf(txn.category),
+                groups = catalog.groups,
                 onSave = { label, emoji, parent ->
                     creatingCategory = false
                     scope.launch {

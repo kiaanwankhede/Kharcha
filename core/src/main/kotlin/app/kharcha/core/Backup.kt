@@ -94,7 +94,11 @@ object BackupCodec {
 object CsvExporter {
     private val HEADER = listOf("Date", "Time", "Amount", "Type", "Merchant", "Group", "Category", "Bank", "Account", "UPI ref", "Note")
 
-    fun export(transactions: List<Transaction>, zone: java.time.ZoneId = java.time.ZoneId.of("Asia/Kolkata")): String {
+    fun export(
+        transactions: List<Transaction>,
+        zone: java.time.ZoneId = java.time.ZoneId.of("Asia/Kolkata"),
+        groupOf: (Category) -> Category = Category::groupOf,
+    ): String {
         val rows = transactions.sortedBy { it.timestampMillis }.map { t ->
             val time = java.time.Instant.ofEpochMilli(t.timestampMillis).atZone(zone)
             listOf(
@@ -103,7 +107,7 @@ object CsvExporter {
                 java.math.BigDecimal.valueOf(t.amountPaise).movePointLeft(2).toPlainString(),
                 if (t.direction == Direction.DEBIT) "Debit" else "Credit",
                 t.merchant,
-                Category.groupOf(t.category).label,
+                groupOf(t.category).label,
                 t.category.label,
                 t.bank.orEmpty(),
                 t.accountLast4.orEmpty(),

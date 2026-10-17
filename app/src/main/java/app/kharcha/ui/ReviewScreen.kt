@@ -329,7 +329,7 @@ private fun ReviewCard(
             }
         }
         Text(
-            "${Category.groupOf(category).emoji} ${Category.groupOf(category).label} › ${category.emoji} ${category.label}",
+            "${catalog.groupOf(category).emoji} ${catalog.groupOf(category).label} › ${category.emoji} ${category.label}",
             style = MaterialTheme.typography.bodySmall,
             color = Muted,
         )
@@ -380,7 +380,8 @@ private fun ReviewCard(
         CategoryEditorDialog(
             initial = null,
             onDismiss = { creating = false },
-            defaultGroup = Category.groupOf(category),
+            defaultGroup = catalog.groupOf(category),
+            groups = catalog.groups,
             onSave = { label, emoji, parent ->
                 creating = false
                 onCreateCategory(label, emoji, parent, rememberForMerchant, note.takeIf { it.isNotBlank() })

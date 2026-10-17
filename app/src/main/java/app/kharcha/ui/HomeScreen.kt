@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.kharcha.core.Category
+import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.InsightsEngine
 import app.kharcha.core.dailyTotals
 import app.kharcha.core.monthlyTotals
@@ -37,6 +38,7 @@ import java.time.YearMonth
 @Composable
 fun HomeScreen(
     transactions: List<Transaction>,
+    catalog: CategoryCatalog,
     pendingCount: Int,
     monthlyLimitPaise: Long?,
     onOpenReview: () -> Unit,
@@ -201,8 +203,9 @@ fun HomeScreen(
             }
         } else {
             item { SectionLabel("Where it went") }
-            val top = summary.byGroup.first().spentPaise.toFloat()
-            items(summary.byGroup, key = { it.group.id }) { group ->
+            val byGroup = summary.byGroup(catalog::groupOf)
+            val top = byGroup.first().spentPaise.toFloat()
+            items(byGroup, key = { it.group.id }) { group ->
                 val share = if (summary.spentPaise > 0) (group.spentPaise * 100 / summary.spentPaise) else 0L
                 val expanded = group.group.id in expandedGroups
                 Panel(Modifier.clickable { expandedGroups = if (expanded) expandedGroups - group.group.id else expandedGroups + group.group.id }) {

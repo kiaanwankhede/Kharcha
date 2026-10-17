@@ -48,7 +48,7 @@ class BackupManager(
         runCatching {
             val transactions = repository.allTransactions().filter { it.status == ReviewStatus.REVIEWED }
             context.contentResolver.openOutputStream(uri, "wt")?.use {
-                it.write(CsvExporter.export(transactions).toByteArray(Charsets.UTF_8))
+                it.write(CsvExporter.export(transactions, groupOf = repository.catalogNow()::groupOf).toByteArray(Charsets.UTF_8))
             } ?: error("Couldn't open that file")
             transactions.size
         }

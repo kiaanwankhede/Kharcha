@@ -55,14 +55,16 @@ data class CustomCategoryEntity(
     val emoji: String,
     val countsAsSpend: Boolean,
     val parentId: String?,
+    val kind: String?,
 )
 
+/** Raw form: [CategoryCatalog] works out each subcategory's group (built-in or the user's own). */
 fun CustomCategoryEntity.toCore(): Category {
-    val group = Category.GROUPS.firstOrNull { it.id == parentId } ?: Category.G_OTHER
-    return Category(id, label, emoji, group.kind == Kind.SPENDING, builtIn = false, parentId = group.id, kind = group.kind)
+    val kind = kind?.let { runCatching { Kind.valueOf(it) }.getOrNull() } ?: Kind.SPENDING
+    return Category(id, label, emoji, kind == Kind.SPENDING, builtIn = false, parentId = parentId, kind = kind)
 }
 
-fun Category.toEntity() = CustomCategoryEntity(id, label, emoji, countsAsSpend, parentId)
+fun Category.toEntity() = CustomCategoryEntity(id, label, emoji, countsAsSpend, parentId, kind.name)
 
 @Entity(tableName = "merchant_rules")
 data class MerchantRuleEntity(
@@ -203,7 +205,7 @@ interface CustomCategoryDao {
 
 @Database(
     entities = [TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
@@ -235,9 +237,16 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // Users can make their own groups, which carry a kind (spending, saving, …).
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `custom_categories` ADD COLUMN `kind` TEXT")
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
     }
 }

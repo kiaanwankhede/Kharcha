@@ -144,6 +144,7 @@ private fun MainScreen(
         when (tab) {
             Tab.HOME -> HomeScreen(
                 transactions = reviewed,
+                catalog = catalog,
                 pendingCount = pending.size,
                 monthlyLimitPaise = limit,
                 onOpenReview = { tab = Tab.REVIEW },

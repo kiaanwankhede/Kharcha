@@ -186,3 +186,27 @@ class WalletTest {
         assertEquals(45000L, both.walletSpentPaise)
     }
 }
+
+class CustomGroupTest {
+    @Test
+    fun `user groups hold user subcategories and total like built-in ones`() {
+        val kids = Category.customGroup("Kids", "🧒")
+        val school = Category.custom("School van", "🚐", kids)
+        val catalog = CategoryCatalog(listOf(kids, school))
+        assertEquals(kids, catalog.groupOf(school))
+        assertEquals(listOf(school.id), catalog.childrenOf(kids).map { it.id })
+        assertTrue(kids in catalog.groups)
+
+        val zone = ZoneId.of("Asia/Kolkata")
+        val t = Transaction(
+            amountPaise = 300000, direction = Direction.DEBIT,
+            timestampMillis = LocalDate.of(2026, 10, 3).atTime(9, 0).atZone(zone).toInstant().toEpochMilli(),
+            merchant = "Van", merchantKey = "van", category = catalog.byId(school.id), source = Source.MANUAL, rawText = "",
+        )
+        val groups = InsightsEngine(zone).summary(listOf(t), LocalDate.of(2026, 10, 17)).byGroup(catalog::groupOf)
+        assertEquals(kids, groups.single().group)
+
+        // A deleted group's subcategories fall back to Other.
+        assertEquals(Category.G_OTHER, CategoryCatalog(listOf(school)).groupOf(CategoryCatalog(listOf(school)).byId(school.id)))
+    }
+}

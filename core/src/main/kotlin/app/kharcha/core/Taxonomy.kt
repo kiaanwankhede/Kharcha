@@ -212,8 +212,21 @@ data class Category(
             "UNLOGGED_CASH" to UNLOGGED_CASH, "UNTRACKED_WALLET" to UNTRACKED_WALLET,
         )
 
+        /** A user-made group; its subcategories take its [kind]. */
+        fun customGroup(label: String, emoji: String, kind: Kind = Kind.SPENDING): Category = Category(
+            id = CUSTOM_GROUP_PREFIX + java.util.UUID.randomUUID().toString().replace("-", "").take(12),
+            label = label.trim(),
+            emoji = emoji.trim().ifEmpty { "📁" },
+            countsAsSpend = kind == Kind.SPENDING,
+            builtIn = false,
+            parentId = null,
+            kind = kind,
+        )
+
+        const val CUSTOM_GROUP_PREFIX = "customg_"
+
         fun custom(label: String, emoji: String, parent: Category): Category {
-            val group = groupOf(parent)
+            val group = if (parent.isGroup) parent else groupOf(parent)
             return Category(
                 id = "custom_" + java.util.UUID.randomUUID().toString().replace("-", "").take(12),
                 label = label.trim(),
@@ -227,18 +240,37 @@ data class Category(
     }
 }
 
-/** All categories the user can pick from: the built-in ones plus their own, organised by group. */
+/**
+ * All categories the user can pick from: the built-in ones plus their own groups and subcategories.
+ * [custom] may hold both; groups are recognised by having no parent.
+ */
 class CategoryCatalog(custom: List<Category> = emptyList()) {
-    private val customLeaves = custom.map { if (it.parentId == null) it.copy(parentId = Category.G_OTHER.id) else it }
+    private val customGroups = custom.filter { it.parentId == null && it.id.startsWith(Category.CUSTOM_GROUP_PREFIX) }
+
+    /** Built-in spending groups, then the user's groups, then Other and the non-spending groups. */
+    val groups: List<Category> = run {
+        val spending = Category.GROUPS.filter { it.kind == Kind.SPENDING && it.id != Category.G_OTHER.id }
+        val rest = Category.GROUPS.filter { it.kind != Kind.SPENDING || it.id == Category.G_OTHER.id }
+        spending + customGroups + rest
+    }
+    private val groupsById = groups.associateBy { it.id }
+
+    private val customLeaves = custom.filterNot { it in customGroups }.map { leaf ->
+        val group = groupsById[leaf.parentId] ?: Category.G_OTHER
+        leaf.copy(parentId = group.id, kind = group.kind, countsAsSpend = group.kind == Kind.SPENDING)
+    }
 
     /** Every pickable subcategory. */
     val all: List<Category> = Category.BUILT_IN + customLeaves
-    val groups: List<Category> = Category.GROUPS
 
     private val byId = (all + Category.SYNTHETIC + groups).associateBy { it.id }
 
     /** Subcategories of [group], built-in first, then the user's own. */
     fun childrenOf(group: Category): List<Category> = all.filter { it.parentId == group.id }
+
+    /** The group a category belongs to, including the user's own groups. */
+    fun groupOf(category: Category): Category =
+        if (category.isGroup) category else groupsById[category.parentId] ?: Category.groupOf(category)
 
     /** Unknown ids (for example a deleted custom category) fall back to Uncategorised; old ids are translated. */
     fun byId(id: String): Category = byId[id] ?: Category.LEGACY_IDS[id] ?: Category.OTHER

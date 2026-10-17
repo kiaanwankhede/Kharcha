@@ -41,8 +41,9 @@ data class MonthSummary(
     /** Put into savings and investments this month; not spending. */
     val savedPaise: Long = 0,
 ) {
-    val byGroup: List<GroupTotal>
-        get() = byCategory.groupBy { Category.groupOf(it.category) }
+    /** Totals per group; pass the catalog's [groupOf] so the user's own groups are used. */
+    fun byGroup(groupOf: (Category) -> Category = Category::groupOf): List<GroupTotal> =
+        byCategory.groupBy { groupOf(it.category) }
             .map { (group, children) -> GroupTotal(group, children.sumOf { it.spentPaise }, children.sortedByDescending { it.spentPaise }) }
             .sortedByDescending { it.spentPaise }
 }

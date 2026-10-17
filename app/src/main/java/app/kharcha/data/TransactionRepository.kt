@@ -124,16 +124,32 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
         dao.update(existing.copy(note = note.trim().ifEmpty { null }))
     }
 
-    /** Creates a category, or updates it if it already exists. Returns the saved category. */
+    /** Creates a category or group, or updates it if it already exists. Returns the saved category. */
     suspend fun saveCategory(category: Category): Category {
         require(!category.builtIn) { "Built-in categories can't be edited" }
         customCategories.upsert(category.toEntity())
+        if (category.isGroup) {
+            // A group's subcategories follow its kind.
+            customCategories.getAll().filter { it.parentId == category.id }.forEach {
+                customCategories.upsert(it.copy(kind = category.kind.name, countsAsSpend = category.countsAsSpend))
+            }
+        }
         return category
     }
 
-    /** Deletes a custom category; its transactions and merchant rules move to Other. */
+    /**
+     * Deletes a custom category; its transactions and merchant rules move to Uncategorised. Deleting a
+     * custom group moves its subcategories to the Other group instead.
+     */
     suspend fun deleteCategory(category: Category) {
         if (category.builtIn) return
+        if (category.isGroup) {
+            customCategories.getAll().filter { it.parentId == category.id }.forEach {
+                customCategories.upsert(it.copy(parentId = Category.G_OTHER.id, kind = Category.G_OTHER.kind.name))
+            }
+            customCategories.delete(category.id)
+            return
+        }
         dao.moveCategory(category.id, Category.OTHER.id)
         rules.deleteForCategory(category.id)
         customCategories.delete(category.id)
@@ -186,6 +202,8 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
         rules.insertAll(payload.merchantRules.map { (key, category) -> MerchantRuleEntity(key, category.id) })
         prefs.monthlyLimitPaise = payload.monthlyLimitPaise
     }
+
+    suspend fun catalogNow(): CategoryCatalog = currentCatalog()
 
     private suspend fun currentCatalog() = CategoryCatalog(customCategories.getAll().map { it.toCore() })
 
