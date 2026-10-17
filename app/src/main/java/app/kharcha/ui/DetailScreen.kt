@@ -104,19 +104,6 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
                             Text(catalog.groupOf(txn.category).label, style = MaterialTheme.typography.bodySmall, color = Faint)
                         }
                     }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("＋ New category…", fontWeight = FontWeight.Bold) },
-                            onClick = {
-                                menuOpen = false
-                                creatingCategory = true
-                            },
-                        )
-                        CategoryMenuItems(catalog) { category ->
-                            menuOpen = false
-                            scope.launch { repository.setCategory(txn.id, category, rememberForMerchant) }
-                        }
-                    }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -173,6 +160,22 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
         SectionLabel("Original message")
         Text(txn.rawText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Muted)
 
+        if (menuOpen) {
+            CategoryPickerSheet(
+                catalog = catalog,
+                selected = txn.category,
+                suggestions = Merchants.brandOf(txn)?.choices.orEmpty(),
+                onPick = { category ->
+                    menuOpen = false
+                    scope.launch { repository.setCategory(txn.id, category, rememberForMerchant) }
+                },
+                onDismiss = { menuOpen = false },
+                onCreateNew = {
+                    menuOpen = false
+                    creatingCategory = true
+                },
+            )
+        }
         if (renaming) {
             RenamePayeeDialog(
                 current = txn.merchant,

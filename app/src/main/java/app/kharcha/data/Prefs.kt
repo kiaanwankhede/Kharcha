@@ -41,6 +41,26 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean("category_tree_migrated", false)
         set(value) = prefs.edit { putBoolean("category_tree_migrated", value) }
 
+    /** Consecutive days on which the review inbox was cleared. */
+    val reviewStreak: Int
+        get() {
+            val last = prefs.getString("streak_last_day", null)?.let(java.time.LocalDate::parse) ?: return 0
+            val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+            return if (last == today || last == today.minusDays(1)) prefs.getInt("streak_days", 0) else 0
+        }
+
+    /** Call when the inbox reaches zero. Counts each day once. */
+    fun markInboxCleared() {
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+        val last = prefs.getString("streak_last_day", null)?.let(java.time.LocalDate::parse)
+        if (last == today) return
+        val days = if (last == today.minusDays(1)) prefs.getInt("streak_days", 0) + 1 else 1
+        prefs.edit {
+            putString("streak_last_day", today.toString())
+            putInt("streak_days", days)
+        }
+    }
+
     var reviewReminder: Boolean
         get() = prefs.getBoolean("review_reminder", true)
         set(value) = prefs.edit { putBoolean("review_reminder", value) }

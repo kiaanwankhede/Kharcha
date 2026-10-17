@@ -117,6 +117,11 @@ private fun MainScreen(
         }
     }
 
+    LaunchedEffect(pending.isEmpty(), all.isEmpty()) {
+        if (pending.isEmpty() && all.isNotEmpty()) container.prefs.markInboxCleared()
+    }
+    val streak = remember(pending.size) { container.prefs.reviewStreak }
+
     LaunchedEffect(openReviewRequest) {
         if (openReviewRequest > 0) tab = Tab.REVIEW
     }
@@ -185,6 +190,7 @@ private fun MainScreen(
                 onOpenUnread = { openRoute("unread") },
                 onUndoable = showUndo,
                 modifier = modifier,
+                streak = streak,
             )
             Tab.TRANSACTIONS -> TransactionsScreen(
                 transactions = reviewed,

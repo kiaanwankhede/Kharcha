@@ -12,6 +12,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import app.kharcha.core.Confidence
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
@@ -25,6 +31,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -73,6 +80,7 @@ fun ReviewScreen(
     /** Shows a message with an Undo action that runs [undo]. */
     onUndoable: (message: String, undo: suspend () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
+    streak: Int = 0,
 ) {
     val repository = container.repository
     val scope = rememberCoroutineScope()
@@ -103,6 +111,9 @@ fun ReviewScreen(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("To review", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                if (streak > 1) {
+                    Text("🔥 $streak-day streak of clearing your inbox", color = Rust, fontWeight = FontWeight.SemiBold)
+                }
                 Text(
                     if (pending.isEmpty()) {
                         "You’re all caught up."
@@ -209,6 +220,19 @@ fun ReviewScreen(
                 )
             }
         }
+        val sure = shown.filter { it.confidence == Confidence.SURE && it.possibleDuplicateOf == null }
+        if (sure.size > 1) {
+            item {
+                OutlinedButton(
+                    onClick = {
+                        val ids = sure.map { it.id }
+                        scope.launch { ids.forEach { repository.accept(it) } }
+                        onUndoable("Accepted ${ids.size} sure payments") { ids.forEach { repository.sendBackToReview(it) } }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("✓ Accept the ${sure.size} marked Sure") }
+            }
+        }
         if (shown.size > 1) {
             item {
                 TextButton(onClick = { confirmAcceptAll = true }, modifier = Modifier.fillMaxWidth()) {
@@ -245,6 +269,7 @@ fun ReviewScreen(
 
 private enum class ReviewFilter(val label: String) {
     ALL("All"),
+    GUESSES("Guesses"),
     TODAY("Today"),
     YESTERDAY("Yesterday"),
     WEEK("This week"),
@@ -254,6 +279,7 @@ private enum class ReviewFilter(val label: String) {
 
     fun accepts(t: Transaction, today: LocalDate): Boolean = when (this) {
         ALL -> true
+        GUESSES -> t.confidence == Confidence.GUESS || t.possibleDuplicateOf != null
         TODAY -> t.localDate() == today
         YESTERDAY -> t.localDate() == today.minusDays(1)
         WEEK -> t.localDate() > today.minusDays(7)
@@ -264,7 +290,7 @@ private enum class ReviewFilter(val label: String) {
 
 private enum class ReviewSort(val label: String) { NEWEST("Newest"), OLDEST("Oldest"), LARGEST("Largest") }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun ReviewCard(
     t: Transaction,
@@ -284,7 +310,26 @@ private fun ReviewCard(
     var rememberForMerchant by remember(t.id) { mutableStateOf(!multiBusiness) }
     var note by remember(t.id) { mutableStateOf(t.note.orEmpty()) }
     var showMessage by remember(t.id) { mutableStateOf(false) }
-    var moreOpen by remember(t.id) { mutableStateOf(false) }
+    var sheetOpen by remember(t.id) { mutableStateOf(false) }
+    // Sure payments start folded to one line; guesses and possible duplicates open, so you look at them.
+    var expanded by remember(t.id) { mutableStateOf(t.confidence == Confidence.GUESS || twin != null) }
+    val accept = { onReview(category, rememberForMerchant, note.takeIf { it.isNotBlank() }) }
+    val swipe = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    accept()
+                    true
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onIgnore()
+                    true
+                }
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        },
+        positionalThreshold = { distance -> distance * 0.35f },
+    )
     var creating by remember(t.id) { mutableStateOf(false) }
     val chips = remember(t.id, quickPicks) {
         val choices = brand?.choices.orEmpty()
@@ -295,19 +340,56 @@ private fun ReviewCard(
         if (t.source.name == "NOTIFICATION") "UPI app" else "Bank SMS"
     }
 
-    Panel {
-        Row(verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f)) {
-                Text(t.merchant, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                Text("$time · $via", style = MaterialTheme.typography.bodySmall, color = Faint)
+    SwipeToDismissBox(
+        state = swipe,
+        backgroundContent = {
+            val toRight = swipe.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (toRight) ChartStrong else Sand)
+                    .padding(horizontal = 24.dp),
+                contentAlignment = if (toRight) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Text(
+                    if (toRight) "✓ ${category.label}" else "Ignore",
+                    color = if (toRight) Paper else Muted,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-            Text(
-                t.signedAmount(),
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (t.direction == Direction.CREDIT) Blue else Navy,
-            )
+        },
+    ) {
+    Panel(Modifier.clickable { expanded = !expanded }) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            EmojiBadge(if (t.isSplit) "✂️" else category.emoji, size = 40)
+            Column(Modifier.weight(1f)) {
+                Text(t.merchant, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Text("$time · $via", style = MaterialTheme.typography.bodySmall, color = Faint, maxLines = 1)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    t.signedAmount(),
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (t.direction == Direction.CREDIT) Blue else Navy,
+                )
+                ConfidenceTag(t.confidence)
+            }
         }
+        if (!expanded) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${category.emoji} ${category.label}",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Muted,
+                    maxLines = 1,
+                )
+                TextButton(onClick = { sheetOpen = true }) { Text("Change") }
+                Button(onClick = accept) { Text("✓") }
+            }
+        } else {
 
         if (twin != null) {
             Column(
@@ -370,22 +452,7 @@ private fun ReviewCard(
             chips.forEach { option ->
                 CategoryChip(option, selected = option.id == category.id) { category = option }
             }
-            Box {
-                CategoryChip(label = "More…", selected = chips.none { it.id == category.id }) { moreOpen = true }
-                DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("＋ New category…", fontWeight = FontWeight.Bold) },
-                        onClick = {
-                            moreOpen = false
-                            creating = true
-                        },
-                    )
-                    CategoryMenuItems(catalog) { option ->
-                        category = option
-                        moreOpen = false
-                    }
-                }
-            }
+            CategoryChip(label = "More… 🔍", selected = chips.none { it.id == category.id }) { sheetOpen = true }
         }
         Text(
             "${catalog.groupOf(category).emoji} ${catalog.groupOf(category).label} › ${category.emoji} ${category.label}",
@@ -429,10 +496,30 @@ private fun ReviewCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onIgnore) { Text("Ignore", color = Faint) }
             Spacer(Modifier.weight(1f))
-            Button(onClick = { onReview(category, rememberForMerchant, note.takeIf { it.isNotBlank() }) }) {
+            Button(onClick = accept) {
                 Text("✓ Reviewed")
             }
         }
+        Text("Tip: swipe right to accept, left to ignore", style = MaterialTheme.typography.bodySmall, color = Faint)
+        }
+    }
+    }
+
+    if (sheetOpen) {
+        CategoryPickerSheet(
+            catalog = catalog,
+            selected = category,
+            suggestions = chips,
+            onPick = {
+                category = it
+                sheetOpen = false
+            },
+            onDismiss = { sheetOpen = false },
+            onCreateNew = {
+                sheetOpen = false
+                creating = true
+            },
+        )
     }
 
     if (creating) {
@@ -447,6 +534,16 @@ private fun ReviewCard(
             },
         )
     }
+}
+
+@Composable
+fun ConfidenceTag(confidence: Confidence) {
+    val (label, color) = when (confidence) {
+        Confidence.SURE -> "Sure" to Blue
+        Confidence.LIKELY -> "Likely" to Faint
+        Confidence.GUESS -> "Guess" to Rust
+    }
+    Text(label, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.SemiBold)
 }
 
 @Composable

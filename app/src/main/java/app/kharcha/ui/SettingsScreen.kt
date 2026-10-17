@@ -152,8 +152,8 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Evening reminder", fontWeight = FontWeight.SemiBold)
-                    Text("At 9 PM if anything is waiting for review.", color = Muted)
+                    Text("End-of-day summary", fontWeight = FontWeight.SemiBold)
+                    Text("At 9 PM: today’s payments and spend, and anything still waiting for review.", color = Muted)
                 }
                 Switch(checked = reviewReminder, onCheckedChange = {
                     reviewReminder = it

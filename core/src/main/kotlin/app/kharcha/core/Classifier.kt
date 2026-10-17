@@ -45,7 +45,8 @@ class Classifier(
     fun classify(parsed: ParsedTransaction): Transaction {
         val detected = Merchants.resolve(parsed.counterparty, parsed.vpa)
         val resolved = payeeNames[detected.key]?.let { detected.copy(name = it, key = Merchants.keyOf(it)) } ?: detected
-        val category = rules[resolved.key] ?: rules[detected.key] ?: defaultCategory(parsed, resolved)
+        val ruled = rules[resolved.key] ?: rules[detected.key]
+        val (category, confidence) = if (ruled != null) ruled to Confidence.SURE else defaultCategory(parsed, resolved)
         return Transaction(
             amountPaise = parsed.amountPaise,
             direction = parsed.direction,
@@ -61,18 +62,20 @@ class Classifier(
             reference = parsed.reference,
             balancePaise = parsed.balancePaise,
             status = ReviewStatus.PENDING,
+            confidence = confidence,
         )
     }
 
-    private fun defaultCategory(parsed: ParsedTransaction, resolved: Merchants.Resolved): Category = when {
-        parsed.isOwnTransfer -> if (CARD_BILL.containsMatchIn(parsed.rawText)) Category.CARD_BILL else Category.TRANSFER
-        parsed.direction == Direction.CREDIT -> incomeCategory(parsed, resolved)
-        parsed.isCashWithdrawal -> Category.CASH
-        parsed.isWalletTopUp -> Category.WALLET
-        resolved.brand != null -> resolved.brand.category
+    private fun defaultCategory(parsed: ParsedTransaction, resolved: Merchants.Resolved): Pair<Category, Confidence> = when {
+        parsed.isOwnTransfer -> (if (CARD_BILL.containsMatchIn(parsed.rawText)) Category.CARD_BILL else Category.TRANSFER) to Confidence.SURE
+        parsed.direction == Direction.CREDIT -> incomeCategory(parsed, resolved).let { it to if (it == Category.INCOME) Confidence.GUESS else Confidence.LIKELY }
+        parsed.isCashWithdrawal -> Category.CASH to Confidence.SURE
+        parsed.isWalletTopUp -> Category.WALLET to Confidence.LIKELY
+        resolved.brand != null -> resolved.brand.category to if (resolved.brand.isMultiBusiness) Confidence.GUESS else Confidence.SURE
         else -> keywordCategories.firstOrNull { (pattern, _) ->
             pattern.containsMatchIn(listOfNotNull(parsed.counterparty, parsed.vpa).joinToString(" "))
-        }?.second ?: if (resolved.isPerson) Category.PEOPLE else Category.OTHER
+        }?.let { it.second to Confidence.LIKELY }
+            ?: ((if (resolved.isPerson) Category.PEOPLE else Category.OTHER) to Confidence.GUESS)
     }
 
     private fun incomeCategory(parsed: ParsedTransaction, resolved: Merchants.Resolved): Category {

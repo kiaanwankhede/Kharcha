@@ -12,6 +12,12 @@ enum class Source { SMS, NOTIFICATION, MANUAL }
  */
 enum class ReviewStatus { PENDING, REVIEWED, IGNORED }
 
+/**
+ * How sure the app is about a payment's category. SURE: your own rule, a single-business merchant,
+ * or an unambiguous message (ATM, card bill). LIKELY: matched by keywords. GUESS: worth a look.
+ */
+enum class Confidence { SURE, LIKELY, GUESS }
+
 /** What a parser could read out of one message, before merchant cleanup and categorisation. */
 data class ParsedTransaction(
     val amountPaise: Long,
@@ -57,6 +63,7 @@ data class Transaction(
     val possibleDuplicateOf: Long? = null,
     /** When set, the payment counts as these parts instead of as one amount in [category]. */
     val splits: List<SplitPart> = emptyList(),
+    val confidence: Confidence = Confidence.SURE,
 ) {
     val isSpend: Boolean get() = direction == Direction.DEBIT && category.countsAsSpend
 

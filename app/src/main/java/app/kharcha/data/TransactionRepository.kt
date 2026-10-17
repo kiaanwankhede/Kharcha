@@ -4,6 +4,7 @@ import app.kharcha.core.BackupPayload
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Classifier
+import app.kharcha.core.Confidence
 import app.kharcha.core.Deduplicator
 import app.kharcha.core.Direction
 import app.kharcha.core.Merchants
@@ -215,13 +216,22 @@ class TransactionRepository(
 
     suspend fun pendingCountSince(since: Long): Int = dao.pendingCountSince(since)
 
+    /** Today's payments (reviewed or waiting) and their spend. */
+    suspend fun todaySummary(): Pair<Int, Long> {
+        val zone = java.time.ZoneId.of("Asia/Kolkata")
+        val start = java.time.LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val catalog = currentCatalog()
+        val today = dao.findSince(start).map { it.toCore(catalog) }.filter { it.status != ReviewStatus.IGNORED }
+        return today.size to today.filter { it.isSpend }.sumOf { it.amountPaise }
+    }
+
     suspend fun setCategory(id: Long, category: Category, rememberForMerchant: Boolean) {
         val existing = dao.get(id) ?: return
         if (rememberForMerchant) {
             rules.upsert(MerchantRuleEntity(existing.merchantKey, category.id))
             dao.setCategoryForMerchant(existing.merchantKey, category.id)
         } else {
-            dao.update(existing.copy(category = category.id))
+            dao.update(existing.copy(category = category.id, confidence = Confidence.SURE.name))
         }
     }
 

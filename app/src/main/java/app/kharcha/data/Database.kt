@@ -18,6 +18,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
+import app.kharcha.core.Confidence
 import app.kharcha.core.Direction
 import app.kharcha.core.Kind
 import app.kharcha.core.ReviewStatus
@@ -49,6 +50,7 @@ data class TransactionEntity(
     @ColumnInfo(defaultValue = "REVIEWED") val status: String,
     val possibleDuplicateOf: Long?,
     val splitsJson: String?,
+    val confidence: String?,
 )
 
 /** A bank message the parser could not read, kept so the user can add it by hand. */
@@ -112,6 +114,7 @@ fun TransactionEntity.toCore(catalog: CategoryCatalog) = Transaction(
     status = runCatching { ReviewStatus.valueOf(status) }.getOrDefault(ReviewStatus.PENDING),
     possibleDuplicateOf = possibleDuplicateOf,
     splits = SplitCodec.decode(splitsJson, catalog::byId),
+    confidence = confidence?.let { runCatching { Confidence.valueOf(it) }.getOrNull() } ?: Confidence.SURE,
 )
 
 fun Transaction.toEntity() = TransactionEntity(
@@ -133,6 +136,7 @@ fun Transaction.toEntity() = TransactionEntity(
     status = status.name,
     possibleDuplicateOf = possibleDuplicateOf,
     splitsJson = SplitCodec.encode(splits),
+    confidence = confidence.name,
 )
 
 @Dao
@@ -173,7 +177,7 @@ interface TransactionDao {
     @Update
     suspend fun update(entity: TransactionEntity)
 
-    @Query("UPDATE transactions SET category = :category WHERE merchantKey = :merchantKey")
+    @Query("UPDATE transactions SET category = :category, confidence = 'SURE' WHERE merchantKey = :merchantKey")
     suspend fun setCategoryForMerchant(merchantKey: String, category: String)
 
     @Query("UPDATE transactions SET category = :to WHERE category = :from")
@@ -266,7 +270,7 @@ interface PayeeNameDao {
         TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class,
         UnreadMessageEntity::class, PayeeNameEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
@@ -324,9 +328,16 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // How sure the app was about each category.
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `confidence` TEXT")
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
     }
 }

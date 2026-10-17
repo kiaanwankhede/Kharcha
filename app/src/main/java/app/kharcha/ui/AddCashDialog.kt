@@ -71,12 +71,6 @@ fun AddCashDialog(
                     OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
                         Text("${category.emoji}  ${category.label}  ▾")
                     }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        CategoryMenuItems(catalog, filter = { it.countsAsSpend }) { option ->
-                            category = option
-                            menuOpen = false
-                        }
-                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { daysAgo++ }, enabled = daysAgo < 60) { Text("‹") }
@@ -96,4 +90,17 @@ fun AddCashDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+
+    if (menuOpen) {
+        CategoryPickerSheet(
+            catalog = catalog,
+            selected = category,
+            filter = { it.countsAsSpend },
+            onPick = {
+                category = it
+                menuOpen = false
+            },
+            onDismiss = { menuOpen = false },
+        )
+    }
 }

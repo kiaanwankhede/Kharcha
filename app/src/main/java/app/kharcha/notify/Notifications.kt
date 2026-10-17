@@ -97,13 +97,24 @@ object Notifications {
         NotificationManagerCompat.from(context).notify(id, notification)
     }
 
+    /** End-of-day summary: today's payments and spend, and what is still waiting for review. */
     @SuppressLint("MissingPermission")
-    fun showReminder(context: Context, pending: Int) {
-        if (!canPost(context) || pending <= 0) return
+    fun showDailySummary(context: Context, paymentsToday: Int, spentTodayPaise: Long, pending: Int, streak: Int) {
+        if (!canPost(context) || (paymentsToday == 0 && pending == 0)) return
+        val title = if (paymentsToday > 0) {
+            "Today: $paymentsToday payment${if (paymentsToday == 1) "" else "s"} · ${Money.format(spentTodayPaise)}"
+        } else {
+            "$pending payment${if (pending == 1) "" else "s"} to review"
+        }
+        val text = when {
+            pending > 0 -> "$pending waiting for review. Take a minute to go through them."
+            streak > 1 -> "All reviewed. 🔥 $streak-day streak."
+            else -> "All reviewed. Nice."
+        }
         val notification = NotificationCompat.Builder(context, CHANNEL_REMINDERS)
             .setSmallIcon(R.drawable.ic_stat_rupee)
-            .setContentTitle("$pending payment${if (pending == 1) "" else "s"} to review")
-            .setContentText("Take a minute to go through today’s spending.")
+            .setContentTitle(title)
+            .setContentText(text)
             .setContentIntent(openReview(context, REMINDER_ID))
             .setAutoCancel(true)
             .build()
@@ -144,7 +155,14 @@ class ReviewReminderWorker(context: Context, params: WorkerParameters) : Corouti
     override suspend fun doWork(): Result {
         val container = (applicationContext as KharchaApplication).container
         if (container.prefs.reviewReminder) {
-            Notifications.showReminder(applicationContext, container.repository.pendingCount.first())
+            val (count, spent) = container.repository.todaySummary()
+            Notifications.showDailySummary(
+                applicationContext,
+                paymentsToday = count,
+                spentTodayPaise = spent,
+                pending = container.repository.pendingCount.first(),
+                streak = container.prefs.reviewStreak,
+            )
         }
         return Result.success()
     }
