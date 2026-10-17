@@ -6,8 +6,8 @@ and shows where your money goes. No manual entry, no account, no server.
 
 ## Install on your phone (Pixel)
 
-1. Open the latest run under **Actions → Build APK**, download the `kharcha-apk` artifact and unzip it.
-2. Open `app-debug.apk` on the phone and allow installing from your browser/Files app.
+1. On the phone, open the repo’s **Releases → latest** (`/releases/latest`) and download `kharcha.apk`.
+2. Open it and allow installing from your browser/Files app.
 3. **Allow restricted settings** (needed once, because the app is not from the Play Store):
    Settings → Apps → Kharcha → ⋮ (top right) → *Allow restricted settings*.
 4. Open Kharcha, tap **Allow SMS**, and optionally turn on notification access.
