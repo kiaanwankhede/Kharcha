@@ -35,6 +35,7 @@ class Classifier(private val rules: Map<String, Category> = emptyMap()) {
             vpa = parsed.vpa,
             reference = parsed.reference,
             balancePaise = parsed.balancePaise,
+            status = ReviewStatus.PENDING,
         )
     }
 

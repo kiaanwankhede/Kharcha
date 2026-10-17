@@ -8,6 +8,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import app.kharcha.KharchaApplication
 import app.kharcha.core.NotificationParser
+import app.kharcha.notify.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,7 +29,7 @@ class PaymentNotificationListener : NotificationListenerService() {
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString()
         val parsed = NotificationParser.parse(sbn.packageName, title, text, sbn.postTime) ?: return
         val repository = (applicationContext as KharchaApplication).container.repository
-        scope.launch { repository.ingest(parsed) }
+        scope.launch { repository.ingest(parsed)?.let { Notifications.showNewPayment(applicationContext, it) } }
     }
 
     override fun onDestroy() {

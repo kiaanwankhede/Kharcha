@@ -13,16 +13,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.kharcha.core.Money
 import java.time.LocalDate
 
-private val DaySelected = Color(0xFF2A78D6)
-private val DayOther = Color(0xFF86B6EF)
-private val DayEmpty = Color(0xFFE3DED3)
 
 /** One thin bar per day of the month; tap a day to select it. */
 @Composable
@@ -52,9 +48,9 @@ fun DailyChart(days: List<Pair<LocalDate, Long>>, selected: LocalDate?, onSelect
                         .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
                         .background(
                             when {
-                                isSelected -> DaySelected
-                                total <= 0 -> DayEmpty
-                                else -> DayOther
+                                isSelected -> ChartStrong
+                                total <= 0 -> Line
+                                else -> ChartSoft
                             },
                         ),
                 )

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.provider.Telephony
 import app.kharcha.KharchaApplication
 import app.kharcha.core.SmsParser
+import app.kharcha.notify.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,7 +29,8 @@ class SmsReceiver : BroadcastReceiver() {
                     if (!SmsParser.isLikelyBankSender(sender)) continue
                     val body = parts.joinToString("") { it.messageBody.orEmpty() }
                     val receivedAt = parts.first().timestampMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
-                    SmsParser.parse(sender, body, receivedAt)?.let { repository.ingest(it) }
+                    val parsed = SmsParser.parse(sender, body, receivedAt) ?: continue
+                    repository.ingest(parsed)?.let { Notifications.showNewPayment(context, it) }
                 }
             } finally {
                 pending.finish()

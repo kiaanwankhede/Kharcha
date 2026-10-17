@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -31,15 +32,17 @@ import app.kharcha.core.Transaction
 @Composable
 fun TransactionsScreen(
     transactions: List<Transaction>,
+    ignored: List<Transaction>,
     categoryFilter: Category?,
     onClearFilter: () -> Unit,
     onTransaction: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    val shown = remember(transactions, query, categoryFilter) {
+    var showIgnored by rememberSaveable { mutableStateOf(false) }
+    val shown = remember(transactions, ignored, showIgnored, query, categoryFilter) {
         val q = query.trim().lowercase()
-        transactions.filter { t ->
+        (if (showIgnored) ignored else transactions).filter { t ->
             (categoryFilter == null || t.category == categoryFilter) &&
                 (q.isEmpty() || t.merchant.lowercase().contains(q) || t.category.label.lowercase().contains(q) ||
                     t.note.orEmpty().lowercase().contains(q) || Money.format(t.amountPaise).contains(q))
@@ -49,7 +52,7 @@ fun TransactionsScreen(
 
     Column(modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Transactions", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("History", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -57,8 +60,17 @@ fun TransactionsScreen(
                 placeholder = { Text("Search merchant, category, note or amount") },
                 singleLine = true,
             )
-            if (categoryFilter != null) {
-                Row { AssistChip(onClick = onClearFilter, label = { Text("${categoryFilter.emoji} ${categoryFilter.label}  ✕") }) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (categoryFilter != null) {
+                    AssistChip(onClick = onClearFilter, label = { Text("${categoryFilter.emoji} ${categoryFilter.label}  ✕") })
+                }
+                if (ignored.isNotEmpty()) {
+                    FilterChip(
+                        selected = showIgnored,
+                        onClick = { showIgnored = !showIgnored },
+                        label = { Text("Ignored (${ignored.size})") },
+                    )
+                }
             }
         }
         if (shown.isEmpty()) {

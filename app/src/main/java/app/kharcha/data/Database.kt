@@ -1,6 +1,7 @@
 package app.kharcha.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -18,6 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
+import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.flow.Flow
@@ -42,6 +44,7 @@ data class TransactionEntity(
     val reference: String?,
     val balancePaise: Long?,
     val note: String?,
+    @ColumnInfo(defaultValue = "REVIEWED") val status: String,
 )
 
 @Entity(tableName = "custom_categories")
@@ -78,6 +81,7 @@ fun TransactionEntity.toCore(catalog: CategoryCatalog) = Transaction(
     reference = reference,
     balancePaise = balancePaise,
     note = note,
+    status = runCatching { ReviewStatus.valueOf(status) }.getOrDefault(ReviewStatus.PENDING),
 )
 
 fun Transaction.toEntity() = TransactionEntity(
@@ -96,6 +100,7 @@ fun Transaction.toEntity() = TransactionEntity(
     reference = reference,
     balancePaise = balancePaise,
     note = note,
+    status = status.name,
 )
 
 @Dao
@@ -141,6 +146,18 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("SELECT COUNT(*) FROM transactions WHERE status = 'PENDING'")
+    fun observePendingCount(): Flow<Int>
+
+    @Query("UPDATE transactions SET status = :status WHERE id = :id")
+    suspend fun setStatus(id: Long, status: String)
+
+    @Query("UPDATE transactions SET status = 'REVIEWED' WHERE status = 'PENDING' AND timestampMillis < :before")
+    suspend fun reviewAllBefore(before: Long)
+
+    @Query("SELECT COUNT(*) FROM transactions WHERE status = 'PENDING' AND timestampMillis >= :since")
+    suspend fun pendingCountSince(since: Long): Int
 }
 
 @Dao
@@ -181,7 +198,7 @@ interface CustomCategoryDao {
 
 @Database(
     entities = [TransactionEntity::class, MerchantRuleEntity::class, CustomCategoryEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
@@ -199,9 +216,16 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // Payments already in the app were seen before review existed, so they start as reviewed.
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `status` TEXT NOT NULL DEFAULT 'REVIEWED'")
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }

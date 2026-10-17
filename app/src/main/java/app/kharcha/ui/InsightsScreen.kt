@@ -11,7 +11,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.kharcha.core.InsightKind
@@ -20,8 +19,6 @@ import app.kharcha.core.Money
 import app.kharcha.core.Transaction
 import java.time.LocalDate
 
-private val SpikeTint = Color(0xFFFBE3D5)
-private val CalmTint = Color(0xFFE1E8F5)
 
 @Composable
 fun InsightsScreen(transactions: List<Transaction>, monthlyLimitPaise: Long?, modifier: Modifier = Modifier) {
@@ -46,8 +43,8 @@ fun InsightsScreen(transactions: List<Transaction>, monthlyLimitPaise: Long?, mo
         }
         items(insights) { insight ->
             val tint = when (insight.kind) {
-                InsightKind.SPIKE, InsightKind.UNUSUAL -> SpikeTint
-                InsightKind.RECURRING, InsightKind.DROP -> CalmTint
+                InsightKind.SPIKE, InsightKind.UNUSUAL -> WarmTint
+                InsightKind.RECURRING, InsightKind.DROP -> CoolTint
                 else -> Sand
             }
             Panel(color = tint) {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: a plain rupee sign (Android tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,3h12v2h-3.7c0.7,0.6 1.2,1.4 1.4,2.3H18v2h-2.3c-0.4,2.2 -2.2,3.8 -4.6,4L17.4,21h-2.9l-6,-6.4V12.4h2.2c1.5,0 2.7,-0.8 3,-1.9H6v-2h7.7c-0.3,-1.1 -1.5,-2.5 -3,-2.5H6z" />
+</vector>

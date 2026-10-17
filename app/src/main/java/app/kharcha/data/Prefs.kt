@@ -37,6 +37,22 @@ class Prefs(context: Context) {
         get() = prefs.getString("last_backup_error", null)
         set(value) = prefs.edit { putString("last_backup_error", value) }
 
+    var reviewReminder: Boolean
+        get() = prefs.getBoolean("review_reminder", true)
+        set(value) = prefs.edit { putBoolean("review_reminder", value) }
+
+    private val _theme = MutableStateFlow(theme)
+
+    /** "system", "light" or "dark". */
+    val themeFlow: StateFlow<String> = _theme.asStateFlow()
+
+    var theme: String
+        get() = prefs.getString("theme", "system") ?: "system"
+        set(value) {
+            prefs.edit { putString("theme", value) }
+            _theme.value = value
+        }
+
     var lockEnabled: Boolean
         get() = prefs.getBoolean("lock_enabled", false)
         set(value) = prefs.edit { putBoolean("lock_enabled", value) }

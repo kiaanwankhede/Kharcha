@@ -1,5 +1,6 @@
 package app.kharcha
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.compose.setContent
@@ -8,16 +9,20 @@ import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.kharcha.notify.Notifications
 import app.kharcha.ui.AppRoot
 import app.kharcha.ui.KharchaTheme
 import app.kharcha.ui.LockScreen
 
 class MainActivity : FragmentActivity() {
     private var unlocked by mutableStateOf(false)
+    private var openReviewRequest by mutableIntStateOf(0)
     private var stoppedAt = 0L
     private lateinit var prompt: BiometricPrompt
 
@@ -36,14 +41,29 @@ class MainActivity : FragmentActivity() {
             },
         )
 
+        handleIntent(intent)
+
         setContent {
-            KharchaTheme {
+            val theme by container.prefs.themeFlow.collectAsStateWithLifecycle()
+            KharchaTheme(theme) {
                 if (container.prefs.lockEnabled && !unlocked) {
                     LockScreen(onUnlock = ::authenticate)
                 } else {
-                    AppRoot(container, startWithOnboarding = !container.prefs.onboarded)
+                    AppRoot(container, startWithOnboarding = !container.prefs.onboarded, openReviewRequest = openReviewRequest)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(Notifications.EXTRA_OPEN_REVIEW, false) == true) {
+            openReviewRequest++
+            intent.removeExtra(Notifications.EXTRA_OPEN_REVIEW)
         }
     }
 

@@ -7,6 +7,7 @@ import app.kharcha.core.Classifier
 import app.kharcha.core.Deduplicator
 import app.kharcha.core.Direction
 import app.kharcha.core.Merchants
+import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
 import app.kharcha.core.ParsedTransaction
 import app.kharcha.core.Transaction
@@ -31,12 +32,19 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
         list.map { it.toCore(catalog) }
     }
 
+    /** Only reviewed payments count anywhere in the app. */
+    val reviewed: Flow<List<Transaction>> = transactions.map { list -> list.filter { it.status == ReviewStatus.REVIEWED } }
+
+    val pending: Flow<List<Transaction>> = transactions.map { list -> list.filter { it.status == ReviewStatus.PENDING } }
+
+    val pendingCount: Flow<Int> = dao.observePendingCount()
+
     fun transaction(id: Long): Flow<Transaction?> = combine(dao.observe(id), catalog) { entity, catalog ->
         entity?.toCore(catalog)
     }
 
-    /** Saves a parsed message, merging it into an existing record when it is the same payment. Returns true if new. */
-    suspend fun ingest(parsed: ParsedTransaction): Boolean = ingestLock.withLock {
+    /** Saves a parsed message, merging it into an existing record when it is the same payment. Returns the new record, or null if it was merged. */
+    suspend fun ingest(parsed: ParsedTransaction): Transaction? = ingestLock.withLock {
         val catalog = currentCatalog()
         val incoming = Classifier(currentRules(catalog)).classify(parsed)
         val candidates = buildList {
@@ -55,12 +63,31 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
         if (match != null) {
             val merged = Deduplicator.merge(match, incoming)
             if (merged != match) dao.update(merged.toEntity())
-            false
+            null
         } else {
-            dao.insert(incoming.toEntity())
-            true
+            incoming.copy(id = dao.insert(incoming.toEntity()))
         }
     }
+
+    /** Confirms a payment: it now counts everywhere. */
+    suspend fun review(id: Long, category: Category, rememberForMerchant: Boolean, note: String? = null) {
+        setCategory(id, category, rememberForMerchant)
+        if (note != null) setNote(id, note)
+        dao.setStatus(id, ReviewStatus.REVIEWED.name)
+    }
+
+    /** Accepts a payment with the category it already has. */
+    suspend fun accept(id: Long) = dao.setStatus(id, ReviewStatus.REVIEWED.name)
+
+    /** Not a real spend (a duplicate, a refund pair, not mine): never counted. */
+    suspend fun ignore(id: Long) = dao.setStatus(id, ReviewStatus.IGNORED.name)
+
+    suspend fun sendBackToReview(id: Long) = dao.setStatus(id, ReviewStatus.PENDING.name)
+
+    /** Marks everything older than [before] as reviewed, so the inbox starts from a sensible point. */
+    suspend fun reviewAllBefore(before: Long) = dao.reviewAllBefore(before)
+
+    suspend fun pendingCountSince(since: Long): Int = dao.pendingCountSince(since)
 
     suspend fun setCategory(id: Long, category: Category, rememberForMerchant: Boolean) {
         val existing = dao.get(id) ?: return
@@ -85,6 +112,7 @@ class TransactionRepository(private val db: KharchaDatabase, private val prefs: 
                 category = category,
                 source = Source.MANUAL,
                 rawText = "Cash, added by hand",
+                status = ReviewStatus.REVIEWED,
             ).toEntity(),
         )
     }

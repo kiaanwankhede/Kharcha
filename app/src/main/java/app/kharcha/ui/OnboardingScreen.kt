@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,12 +35,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,6 +50,9 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.kharcha.AppContainer
 import app.kharcha.capture.PaymentNotificationListener
 import app.kharcha.capture.ScanProgress
+import app.kharcha.notify.Notifications
+import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 @Composable
 fun OnboardingScreen(container: AppContainer, onDone: () -> Unit) {
@@ -115,9 +119,14 @@ private fun Permissions(onNext: (smsGranted: Boolean) -> Unit) {
         sms = hasSmsPermission(context)
         asked = true
     }
+    var postNotifications by remember { mutableStateOf(Notifications.canPost(context)) }
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        postNotifications = Notifications.canPost(context)
+    }
     LifecycleResumeEffect(Unit) {
         sms = hasSmsPermission(context)
         notifications = PaymentNotificationListener.isEnabled(context)
+        postNotifications = Notifications.canPost(context)
         onPauseOrDispose { }
     }
 
@@ -141,7 +150,7 @@ private fun Permissions(onNext: (smsGranted: Boolean) -> Unit) {
         }
 
         if (!sms && asked) {
-            Panel(color = Color(0xFFFBE3D5)) {
+            Panel(color = WarmTint) {
                 Text("Pixel blocked it? That’s expected.", fontWeight = FontWeight.Bold)
                 Text(
                     "Android blocks SMS access for apps installed outside the Play Store until you allow it once:\n" +
@@ -162,6 +171,18 @@ private fun Permissions(onNext: (smsGranted: Boolean) -> Unit) {
             }
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Panel(color = Sand) {
+                Text("Kharcha notifications" + if (postNotifications) "  ✓ allowed" else "", fontWeight = FontWeight.Bold)
+                Text("A note after each payment so you can review it, and a 9 PM reminder.", color = Muted)
+                if (!postNotifications) {
+                    OutlinedButton(onClick = { notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
+                        Text("Allow notifications")
+                    }
+                }
+            }
+        }
+
         Spacer(Modifier.height(8.dp))
         Button(onClick = { onNext(sms) }, modifier = Modifier.fillMaxWidth()) {
             Text(if (sms) "Continue" else "Skip for now")
@@ -171,6 +192,7 @@ private fun Permissions(onNext: (smsGranted: Boolean) -> Unit) {
 
 @Composable
 private fun Backfill(container: AppContainer, onDone: () -> Unit) {
+    val scope = rememberCoroutineScope()
     var progress by remember { mutableStateOf(ScanProgress(0, 0, 0, 0)) }
     var finished by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -204,7 +226,23 @@ private fun Backfill(container: AppContainer, onDone: () -> Unit) {
             Text("accounts and cards", color = Muted)
         }
         Spacer(Modifier.weight(1f))
-        Button(onClick = onDone, enabled = finished, modifier = Modifier.fillMaxWidth()) { Text("Go to my dashboard") }
-        if (!finished) TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Skip (you can re-scan from Settings)") }
+        if (finished) {
+            Text("Where should your review start?", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Text("Payments before this are accepted as they are. Everything after waits for you to review.", color = Muted)
+            fun startFrom(daysBack: Long?) {
+                scope.launch {
+                    val cutoff = daysBack?.let { LocalDate.now(Zone).minusDays(it).atStartOfDay(Zone).toInstant().toEpochMilli() }
+                    if (cutoff != null) container.repository.reviewAllBefore(cutoff)
+                    onDone()
+                }
+            }
+            Button(onClick = { startFrom(0) }, modifier = Modifier.fillMaxWidth()) { Text("Today only (recommended)") }
+            OutlinedButton(onClick = { startFrom(6) }, modifier = Modifier.fillMaxWidth()) { Text("The last 7 days") }
+            OutlinedButton(onClick = { startFrom(null) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Everything (${progress.found} payments)")
+            }
+        } else {
+            TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Skip (you can re-scan from Settings)") }
+        }
     }
 }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +38,7 @@ import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Direction
 import app.kharcha.core.Money
+import app.kharcha.core.ReviewStatus
 import app.kharcha.core.Source
 import kotlinx.coroutines.launch
 
@@ -126,6 +128,19 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit) {
             label = { Text("Note or tag") },
         )
         OutlinedButton(onClick = { scope.launch { repository.setNote(txn.id, note) } }) { Text("Save note") }
+
+        when (txn.status) {
+            ReviewStatus.PENDING -> Button(onClick = { scope.launch { repository.accept(txn.id) } }) { Text("✓ Mark reviewed") }
+            ReviewStatus.REVIEWED -> OutlinedButton(onClick = { scope.launch { repository.sendBackToReview(txn.id) } }) {
+                Text("Send back to review")
+            }
+            ReviewStatus.IGNORED -> OutlinedButton(onClick = { scope.launch { repository.sendBackToReview(txn.id) } }) {
+                Text("Un-ignore (back to review)")
+            }
+        }
+        if (txn.status != ReviewStatus.IGNORED && txn.source != Source.MANUAL) {
+            TextButton(onClick = { scope.launch { repository.ignore(txn.id) } }) { Text("Ignore — not a real spend", color = Faint) }
+        }
 
         if (txn.source == Source.MANUAL) {
             OutlinedButton(onClick = {

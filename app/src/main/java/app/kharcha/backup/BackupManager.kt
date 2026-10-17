@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import app.kharcha.core.BackupCodec
 import app.kharcha.core.CsvExporter
+import app.kharcha.core.ReviewStatus
 import app.kharcha.data.PassphraseStore
 import app.kharcha.data.Prefs
 import app.kharcha.data.TransactionRepository
@@ -45,7 +46,7 @@ class BackupManager(
 
     suspend fun exportCsv(uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
-            val transactions = repository.allTransactions()
+            val transactions = repository.allTransactions().filter { it.status == ReviewStatus.REVIEWED }
             context.contentResolver.openOutputStream(uri, "wt")?.use {
                 it.write(CsvExporter.export(transactions).toByteArray(Charsets.UTF_8))
             } ?: error("Couldn't open that file")

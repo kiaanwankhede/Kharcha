@@ -7,6 +7,12 @@ enum class Direction { DEBIT, CREDIT }
 enum class Source { SMS, NOTIFICATION, MANUAL }
 
 /**
+ * Captured payments wait in PENDING until the user has looked at them; only REVIEWED ones count in
+ * totals, charts and insights. IGNORED ones (not really a spend, a duplicate, not mine) never count.
+ */
+enum class ReviewStatus { PENDING, REVIEWED, IGNORED }
+
+/**
  * A spending category. The built-in ones are constants below; users can add their own, which get an
  * id starting with "custom_". [countsAsSpend] is false for money that only moves between your own
  * accounts or comes in.
@@ -107,6 +113,7 @@ data class Transaction(
     val reference: String? = null,
     val balancePaise: Long? = null,
     val note: String? = null,
+    val status: ReviewStatus = ReviewStatus.REVIEWED,
 ) {
     val isSpend: Boolean get() = direction == Direction.DEBIT && category.countsAsSpend
 

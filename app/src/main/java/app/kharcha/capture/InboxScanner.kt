@@ -37,7 +37,7 @@ class InboxScanner(private val context: Context, private val repository: Transac
                 if (SmsParser.isLikelyBankSender(sender)) {
                     val parsed = SmsParser.parse(sender, it.getString(bodyIndex).orEmpty(), it.getLong(dateIndex))
                     if (parsed != null) {
-                        if (repository.ingest(parsed)) found++
+                        if (repository.ingest(parsed) != null) found++
                         parsed.accountLast4?.let { last4 -> accounts += (parsed.bank.orEmpty() + last4) }
                     }
                 }

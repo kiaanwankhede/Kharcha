@@ -17,7 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -27,8 +26,6 @@ import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
 
-private val BarSelected = Color(0xFF2A78D6)
-private val BarOther = Color(0xFF86B6EF)
 
 /** Spend per month as bars; tap a bar to look at that month. Only the selected bar carries its value. */
 @Composable
@@ -70,7 +67,7 @@ fun TrendChart(totals: List<Pair<YearMonth, Long>>, selected: YearMonth, onSelec
                             .fillMaxWidth(0.62f)
                             .fillMaxHeight(fraction)
                             .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                            .background(if (isSelected) BarSelected else BarOther),
+                            .background(if (isSelected) ChartStrong else ChartSoft),
                     )
                 }
                 Text(

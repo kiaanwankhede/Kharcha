@@ -9,6 +9,8 @@ import app.kharcha.data.KharchaDatabase
 import app.kharcha.data.PassphraseStore
 import app.kharcha.data.Prefs
 import app.kharcha.data.TransactionRepository
+import app.kharcha.notify.Notifications
+import app.kharcha.notify.ReviewReminderWorker
 
 class KharchaApplication : Application() {
     lateinit var container: AppContainer
@@ -18,6 +20,8 @@ class KharchaApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         BackupWorker.schedule(this)
+        Notifications.createChannels(this)
+        ReviewReminderWorker.schedule(this)
     }
 }
 

@@ -1,6 +1,8 @@
 package app.kharcha.ui
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,11 +38,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.kharcha.AppContainer
 import app.kharcha.capture.PaymentNotificationListener
 import app.kharcha.core.Money
 import app.kharcha.core.NotABackupException
 import app.kharcha.core.WrongPassphraseException
+import app.kharcha.notify.Notifications
 import kotlinx.coroutines.launch
 
 @Composable
@@ -61,10 +65,17 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
     var sms by remember { mutableStateOf(hasSmsPermission(context)) }
     var notifications by remember { mutableStateOf(PaymentNotificationListener.isEnabled(context)) }
     var lockEnabled by remember { mutableStateOf(prefs.lockEnabled) }
+    var postNotifications by remember { mutableStateOf(Notifications.canPost(context)) }
+    var reviewReminder by remember { mutableStateOf(prefs.reviewReminder) }
+    val theme by prefs.themeFlow.collectAsStateWithLifecycle()
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        postNotifications = Notifications.canPost(context)
+    }
 
     LifecycleResumeEffect(Unit) {
         sms = hasSmsPermission(context)
         notifications = PaymentNotificationListener.isEnabled(context)
+        postNotifications = Notifications.canPost(context)
         onPauseOrDispose { }
     }
 
@@ -107,6 +118,38 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         message?.let { Panel(color = Navy) { Text(it, color = Paper) } }
+
+        SectionLabel("Appearance")
+        Panel {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("system" to "Auto", "light" to "Light", "dark" to "Dark").forEach { (value, label) ->
+                    if (theme == value) {
+                        Button(onClick = {}) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = { prefs.theme = value }) { Text(label) }
+                    }
+                }
+            }
+        }
+
+        SectionLabel("Review")
+        Panel {
+            Text("New payments wait in Review until you confirm them. Only reviewed payments count in totals.", color = Muted)
+            if (!postNotifications && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Text("Notifications are off, so you won’t hear about new payments.", color = Rust)
+                Button(onClick = { notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }) { Text("Allow notifications") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Evening reminder", fontWeight = FontWeight.SemiBold)
+                    Text("At 9 PM if anything is waiting for review.", color = Muted)
+                }
+                Switch(checked = reviewReminder, onCheckedChange = {
+                    reviewReminder = it
+                    prefs.reviewReminder = it
+                })
+            }
+        }
 
         SectionLabel("Categories")
         Panel {

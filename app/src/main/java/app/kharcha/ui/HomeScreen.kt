@@ -36,7 +36,9 @@ import java.time.YearMonth
 @Composable
 fun HomeScreen(
     transactions: List<Transaction>,
+    pendingCount: Int,
     monthlyLimitPaise: Long?,
+    onOpenReview: () -> Unit,
     onCategory: (Category) -> Unit,
     onTransaction: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -63,6 +65,19 @@ fun HomeScreen(
                 TextButton(onClick = { month = month.minusMonths(1) }) { Text("‹", fontSize = 24.sp) }
                 Text(month.title(), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Faint)
                 TextButton(onClick = { month = month.plusMonths(1) }, enabled = !isCurrent) { Text("›", fontSize = 24.sp) }
+            }
+        }
+        if (pendingCount > 0) {
+            item {
+                Panel(Modifier.clickable(onClick = onOpenReview), color = Rust) {
+                    Text(
+                        "🕐  $pendingCount payment${if (pendingCount == 1) "" else "s"} to review",
+                        color = Paper,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text("Not in your totals yet. Tap to go through them.", color = Paper)
+                }
             }
         }
         item {
