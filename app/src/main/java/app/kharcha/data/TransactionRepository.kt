@@ -605,6 +605,10 @@ class TransactionRepository(
             merchantRules = currentRules(catalog),
             monthlyLimitPaise = prefs.monthlyLimitPaise,
             customCategories = catalog.groups.filterNot { it.builtIn } + catalog.all.filterNot { it.builtIn },
+            budgets = budgetDao.getAll().map { app.kharcha.core.BackupBudget.of(it.toCore()) },
+            payeeNames = currentPayeeNames(),
+            events = eventDao.getAll().map { app.kharcha.core.BackupEvent.of(it.toCore()) },
+            goals = goalDao.getAll().map { app.kharcha.core.BackupGoal.of(it.toCore()) },
         )
     }
 
@@ -622,6 +626,17 @@ class TransactionRepository(
         dao.insertAll(payload.transactions.map { it.toEntity() })
         rules.insertAll(payload.merchantRules.map { (key, category) -> MerchantRuleEntity(key, category.id) })
         prefs.monthlyLimitPaise = payload.monthlyLimitPaise
+        // Older backups have none of these; keep what's on the phone rather than wiping it.
+        if (payload.version >= 3) {
+            budgetDao.deleteAll()
+            payload.budgets.forEach { budgetDao.upsert(it.toBudget().toEntity()) }
+            payeeNames.deleteAll()
+            payload.payeeNames.forEach { (key, name) -> payeeNames.upsert(PayeeNameEntity(key, name)) }
+            eventDao.deleteAll()
+            payload.events.forEach { eventDao.upsert(it.toEvent().toEntity()) }
+            goalDao.deleteAll()
+            payload.goals.forEach { goalDao.upsert(it.toGoal().toEntity()) }
+        }
     }
 
     suspend fun catalogNow(): CategoryCatalog = currentCatalog()

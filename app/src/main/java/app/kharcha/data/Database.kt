@@ -400,6 +400,9 @@ interface PayeeNameDao {
 
     @Upsert
     suspend fun upsert(name: PayeeNameEntity)
+
+    @Query("DELETE FROM payee_names")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -415,6 +418,9 @@ interface BudgetDao {
 
     @Query("DELETE FROM budgets WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM budgets")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -451,6 +457,9 @@ interface EventDao {
 
     @Query("DELETE FROM events WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM events")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -463,6 +472,12 @@ interface GoalDao {
 
     @Query("DELETE FROM goals WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("SELECT * FROM goals")
+    suspend fun getAll(): List<GoalEntity>
+
+    @Query("DELETE FROM goals")
+    suspend fun deleteAll()
 }
 
 @Database(

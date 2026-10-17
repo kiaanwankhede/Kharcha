@@ -13,8 +13,8 @@ android {
         applicationId = "app.kharcha"
         minSdk = 29
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.18.0"
+        versionCode = 19
+        versionName = "0.19.0"
     }
 
     signingConfigs {
@@ -33,7 +33,11 @@ android {
             signingConfig = signingConfigs.getByName("shared")
         }
         release {
-            isMinifyEnabled = false
+            // Strips unused library code (the debug APK was ~60 MB). The app's own classes are kept
+            // whole in proguard-rules.pro, since Room, WorkManager and the widget find them by name.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("shared")
         }
     }

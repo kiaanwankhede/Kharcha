@@ -66,6 +66,7 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
     var notifications by remember { mutableStateOf(PaymentNotificationListener.isEnabled(context)) }
     var lockEnabled by remember { mutableStateOf(prefs.lockEnabled) }
     var secureScreen by remember { mutableStateOf(prefs.secureScreen) }
+    var showWhatsNew by remember { mutableStateOf(false) }
     var widgetHides by remember { mutableStateOf(prefs.widgetHidesAmounts) }
     var postNotifications by remember { mutableStateOf(Notifications.canPost(context)) }
     var reviewReminder by remember { mutableStateOf(prefs.reviewReminder) }
@@ -318,7 +319,19 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
             }
             Text("No account, no server. The only data leaving the phone is your encrypted backup file.", color = Muted)
         }
+
+        SectionLabel("About")
+        Panel {
+            Text("Kharcha ${WhatsNew.versionName(context)}", fontWeight = FontWeight.SemiBold)
+            Text("New builds are published on GitHub. Download the latest kharcha.apk and open it to update; your data stays.", color = Muted)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { WhatsNew.openReleases(context) }) { Text("Check for updates") }
+                TextButton(onClick = { showWhatsNew = true }) { Text("What’s new") }
+            }
+        }
     }
+
+    if (showWhatsNew) WhatsNewDialog(onDismiss = { showWhatsNew = false })
 
     if (showPassphraseDialog) {
         PassphraseDialog(

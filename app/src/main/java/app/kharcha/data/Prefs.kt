@@ -112,4 +112,9 @@ class Prefs(context: Context) {
     var widgetHidesAmounts: Boolean
         get() = prefs.getBoolean("widget_hides_amounts", false)
         set(value) = prefs.edit { putBoolean("widget_hides_amounts", value) }
+
+    /** The version whose "What's new" was last shown. */
+    var lastSeenVersion: Long
+        get() = prefs.getLong("last_seen_version", 0L)
+        set(value) = prefs.edit { putLong("last_seen_version", value) }
 }

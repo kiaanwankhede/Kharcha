@@ -191,6 +191,13 @@ private fun MainScreen(
     LaunchedEffect(openReviewRequest) {
         if (openReviewRequest > 0) tab = Tab.REVIEW
     }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showWhatsNew by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (WhatsNew.shouldShow(context, container.prefs.lastSeenVersion)) showWhatsNew = true
+        container.prefs.lastSeenVersion = WhatsNew.versionCode(context)
+    }
+    if (showWhatsNew) WhatsNewDialog(onDismiss = { showWhatsNew = false })
     LaunchedEffect(addCashRequest) {
         if (addCashRequest > 0) addingCash = true
     }

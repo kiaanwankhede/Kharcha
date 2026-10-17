@@ -18,14 +18,55 @@ import javax.crypto.spec.SecretKeySpec
 
 @Serializable
 data class BackupPayload(
-    val version: Int = 2,
+    val version: Int = 3,
     val createdAtMillis: Long,
     val transactions: List<Transaction>,
     /** Merchant key -> category the user chose. */
     val merchantRules: Map<String, Category> = emptyMap(),
     val monthlyLimitPaise: Long? = null,
     val customCategories: List<Category> = emptyList(),
+    val budgets: List<BackupBudget> = emptyList(),
+    /** Merchant key -> the name the user gave that payee. */
+    val payeeNames: Map<String, String> = emptyMap(),
+    val events: List<BackupEvent> = emptyList(),
+    val goals: List<BackupGoal> = emptyList(),
 )
+
+@Serializable
+data class BackupBudget(val kind: String, val targetId: String, val label: String, val emoji: String, val limitPaise: Long) {
+    fun toBudget() = Budget(0, runCatching { BudgetKind.valueOf(kind) }.getOrDefault(BudgetKind.CATEGORY), targetId, label, emoji, limitPaise)
+
+    companion object {
+        fun of(b: Budget) = BackupBudget(b.kind.name, b.targetId, b.label, b.emoji, b.limitPaise)
+    }
+}
+
+/** Dates as ISO strings, like "2026-10-15". */
+@Serializable
+data class BackupEvent(val name: String, val emoji: String, val start: String, val end: String? = null) {
+    fun toEvent() = Event(0, name, emoji, java.time.LocalDate.parse(start), end?.let(java.time.LocalDate::parse))
+
+    companion object {
+        fun of(e: Event) = BackupEvent(e.name, e.emoji, e.start.toString(), e.end?.toString())
+    }
+}
+
+@Serializable
+data class BackupGoal(
+    val name: String,
+    val emoji: String,
+    val targetPaise: Long,
+    val deadline: String? = null,
+    val addedPaise: Long = 0,
+    val linkedCategoryId: String? = null,
+    val createdOn: String,
+) {
+    fun toGoal() = Goal(0, name, emoji, targetPaise, deadline?.let(java.time.LocalDate::parse), addedPaise, linkedCategoryId, java.time.LocalDate.parse(createdOn))
+
+    companion object {
+        fun of(g: Goal) = BackupGoal(g.name, g.emoji, g.targetPaise, g.deadline?.toString(), g.addedPaise, g.linkedCategoryId, g.createdOn.toString())
+    }
+}
 
 class WrongPassphraseException : Exception("The passphrase does not match this backup")
 

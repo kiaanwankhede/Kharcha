@@ -10,12 +10,17 @@ class BackupTest {
         amountPaise = 45000, direction = Direction.DEBIT, timestampMillis = 1_792_000_000_000L,
         merchant = "Swiggy", merchantKey = "swiggy", category = Category.FOOD_DELIVERY, source = Source.SMS,
         rawText = "Sent Rs.450.00 To SWIGGY", accountLast4 = "1234", reference = "628941075321",
+        tags = listOf("goa trip"), reimburse = Reimburse.PENDING,
     )
     private val payload = BackupPayload(
         createdAtMillis = 1L,
         transactions = listOf(txn),
         merchantRules = mapOf("swiggy" to Category.FOOD_DELIVERY),
         monthlyLimitPaise = 30_000_00,
+        budgets = listOf(BackupBudget("GROUP", "g.food", "Food & drinks", "🍔", 300000)),
+        payeeNames = mapOf("upi 3210" to "Mom"),
+        events = listOf(BackupEvent.of(Event(name = "Goa trip", emoji = "🏖️", start = java.time.LocalDate.of(2026, 10, 10)))),
+        goals = listOf(BackupGoal.of(Goal(name = "Phone", emoji = "📱", targetPaise = 8_000_000, createdOn = java.time.LocalDate.of(2026, 9, 1)))),
     )
 
     @Test
