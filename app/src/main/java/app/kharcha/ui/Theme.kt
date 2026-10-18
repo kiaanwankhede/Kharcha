@@ -1,5 +1,7 @@
 package app.kharcha.ui
 
+import androidx.compose.foundation.layout.fillMaxSize
+
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -122,6 +124,15 @@ fun KharchaTheme(theme: String = "system", content: @Composable () -> Unit) {
         )
     }
     CompositionLocalProvider(LocalPalette provides palette) {
-        MaterialTheme(colorScheme = scheme, content = content)
+        MaterialTheme(colorScheme = scheme) {
+            // Every screen (including ones opened outside the tabs) gets the palette's background and
+            // text colour, so nothing is left light-on-light or dark-on-dark.
+            androidx.compose.material3.Surface(
+                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                color = palette.paper,
+                contentColor = palette.ink,
+                content = content,
+            )
+        }
     }
 }

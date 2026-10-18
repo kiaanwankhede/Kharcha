@@ -503,7 +503,7 @@ private fun ReviewCard(
         else -> "No tags yet"
     }
     // One choice shouldn't relabel every payment to a merchant that sells several things.
-    var rememberForMerchant by remember(t.id) { mutableStateOf(!multiBusiness) }
+    var rememberForMerchant by remember(t.id) { mutableStateOf(brand != null && !multiBusiness) }
     var note by remember(t.id) { mutableStateOf(t.note.orEmpty()) }
     var showMessage by remember(t.id) { mutableStateOf(false) }
     var sheetOpen by remember(t.id) { mutableStateOf(false) }

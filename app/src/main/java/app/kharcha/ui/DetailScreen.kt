@@ -57,7 +57,8 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
     var creatingCategory by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
-    var rememberForMerchant by rememberSaveable(t?.id) { mutableStateOf(t?.let { Merchants.brandOf(it)?.isMultiBusiness } != true) }
+    // Only on by default for a known store; for a person or an unreadable payee ("Unknown") it would tag unrelated payments.
+    var rememberForMerchant by rememberSaveable(t?.id) { mutableStateOf(t?.let { Merchants.brandOf(it)?.isMultiBusiness == false } == true) }
     var note by rememberSaveable(t?.id) { mutableStateOf(t?.note.orEmpty()) }
     var renaming by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
