@@ -35,8 +35,8 @@ import java.util.Locale
 
 /**
  * The home-screen deck: a stack of cards (review, safe to spend, today, month, budgets, upcoming)
- * shown one at a time. It flips to the next card by itself every few seconds; the › button flips it
- * straight away.
+ * each as tall as the widget, so scrolling moves one card at a time. The ⌄ button scrolls to the
+ * next card.
  */
 class DeckWidgetProvider : AppWidgetProvider() {
 
@@ -45,7 +45,7 @@ class DeckWidgetProvider : AppWidgetProvider() {
             val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
                 AppWidgetManager.getInstance(context)
-                    .partiallyUpdateAppWidget(id, RemoteViews(context.packageName, R.layout.widget_deck).apply { showNext(R.id.deck) })
+                    .partiallyUpdateAppWidget(id, RemoteViews(context.packageName, R.layout.widget_deck).apply { setRelativeScrollPosition(R.id.deck, 1) })
             }
             return
         }
@@ -126,6 +126,9 @@ private class DeckFactory(private val context: Context, private val widgetId: In
     /** True when the widget is tall enough (3+ rows) for a second payment, bill or third budget. */
     private var roomy = false
 
+    /** The widget's height, so each card fills it exactly. */
+    private var cardHeightDp = 0
+
     private fun money(paise: Long): String = if (hideAmounts) "₹ ••••" else Money.format(paise)
 
     override fun onCreate() = Unit
@@ -141,8 +144,10 @@ private class DeckFactory(private val context: Context, private val widgetId: In
         }
         today = LocalDate.now(zone)
         hideAmounts = container.prefs.widgetHidesAmounts
-        roomy = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)
-            .getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0) >= 170
+        // In portrait the widget is as tall as its max height.
+        cardHeightDp = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)
+            .getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)
+        roomy = cardHeightDp >= 170
         cards = runBlocking(Dispatchers.IO) {
             val repository = container.repository
             val catalog = repository.catalogNow()
@@ -182,6 +187,9 @@ private class DeckFactory(private val context: Context, private val widgetId: In
 
     private fun views(layout: Int, onTap: Intent) = RemoteViews(context.packageName, layout).apply {
         setOnClickFillInIntent(R.id.card, onTap)
+        if (cardHeightDp > 0 && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            setViewLayoutHeight(R.id.card, cardHeightDp.toFloat(), android.util.TypedValue.COMPLEX_UNIT_DIP)
+        }
     }
 
     private fun review(card: DeckCard.Review) = views(R.layout.deck_card_review, WidgetActionActivity.open(WidgetActionActivity.OPEN_REVIEW)).apply {

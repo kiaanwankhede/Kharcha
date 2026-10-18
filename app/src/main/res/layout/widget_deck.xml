@@ -1,22 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The deck: one full-size card at a time. It flips to the next card every few seconds by itself;
-  the › button flips it straight away. (Android only allows swiping in a StackView, which shrinks
-  the card and shows the cards behind it, so this uses a flipper instead.)
+  The deck: a list of cards, each as tall as the widget, so you scroll through them one at a time.
+  The ⌄ button scrolls to the next card.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <AdapterViewFlipper
+    <ListView
         android:id="@+id/deck"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:autoStart="true"
-        android:flipInterval="8000"
-        android:inAnimation="@animator/deck_in"
-        android:loopViews="true"
-        android:outAnimation="@animator/deck_out" />
+        android:divider="@android:color/transparent"
+        android:dividerHeight="0dp"
+        android:overScrollMode="never"
+        android:scrollbars="none" />
 
     <TextView
         android:id="@+id/deck_empty"
