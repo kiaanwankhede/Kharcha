@@ -55,6 +55,9 @@ import app.kharcha.core.Kind
 import app.kharcha.core.Merchants
 import app.kharcha.core.Tags
 import app.kharcha.core.Transaction
+import app.kharcha.data.UnreadMessageEntity
+import app.kharcha.data.MessageState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -87,7 +90,8 @@ fun ReviewScreen(
             Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listOf(false to "Payments (${pending.size})", true to "All messages").forEach { (value, label) ->
+            val waitingMessages by container.repository.toDecide.collectAsStateWithLifecycle(initialValue = emptyList())
+            listOf(false to "To review (${pending.size + waitingMessages.size})", true to "History").forEach { (value, label) ->
                 if (showMessages == value) {
                     Button(onClick = {}) { Text(label) }
                 } else {
@@ -134,8 +138,26 @@ private fun PaymentsReview(
         }
     }
     val isFiltered = query.isNotBlank() || filter != ReviewFilter.ALL
-    val byDay = remember(shown, sort) {
-        if (sort == ReviewSort.LARGEST) mapOf<LocalDate?, List<Transaction>>(null to shown) else shown.groupBy<Transaction, LocalDate?> { it.localDate() }
+    // Every message nobody has decided on yet sits in the same list as the payments.
+    val messages by repository.toDecide.collectAsStateWithLifecycle(initialValue = emptyList())
+    var adding by remember { mutableStateOf<UnreadMessageEntity?>(null) }
+    var askingDate by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
+    var scanned by remember { mutableStateOf<app.kharcha.capture.ScanProgress?>(null) }
+    val shownMessages = remember(messages, query, filter) {
+        val q = query.trim().lowercase()
+        messages.filter { m ->
+            (q.isEmpty() || m.body.lowercase().contains(q) || m.sender.lowercase().contains(q)) && filter.acceptsDay(dateOf(m.receivedAt), today)
+        }
+    }
+    val total = pending.size + messages.size
+    val byDay = remember(shown, shownMessages, sort) {
+        val items = shown.map { ReviewItem.Pay(it) } + shownMessages.map { ReviewItem.Msg(it) }
+        when (sort) {
+            ReviewSort.LARGEST -> mapOf<LocalDate?, List<ReviewItem>>(null to (shown.map { ReviewItem.Pay(it) } + shownMessages.map { ReviewItem.Msg(it) }))
+            ReviewSort.OLDEST -> items.sortedBy { it.time }.groupBy<ReviewItem, LocalDate?> { dateOf(it.time) }
+            ReviewSort.NEWEST -> items.sortedByDescending { it.time }.groupBy<ReviewItem, LocalDate?> { dateOf(it.time) }
+        }
     }
 
     LazyColumn(
@@ -150,10 +172,11 @@ private fun PaymentsReview(
                     Text("🔥 $streak-day streak of clearing your inbox", color = Rust, fontWeight = FontWeight.SemiBold)
                 }
                 Text(
-                    if (pending.isEmpty()) {
+                    if (total == 0) {
                         "You’re all caught up."
                     } else {
-                        "${pending.size} payment${if (pending.size == 1) "" else "s"} waiting. They count in your totals once reviewed."
+                        "${pending.size} payment${if (pending.size == 1) "" else "s"} and ${messages.size} other message${if (messages.size == 1) "" else "s"} to go through. " +
+                            "Payments count in your totals once reviewed; tell the app which messages aren’t payments."
                     },
                     color = Muted,
                 )
@@ -178,18 +201,32 @@ private fun PaymentsReview(
                 }
             }
         }
-        if (unreadCount > 0) {
+        if (!container.prefs.allMessagesLoaded) {
             item {
-                Panel(Modifier.clickable(onClick = onOpenUnread), color = WarmTint) {
-                    Text(
-                        "📭  $unreadCount bank message${if (unreadCount == 1) "" else "s"} we couldn’t read",
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text("They mention money but in a format the app doesn’t know yet. Tap to add them yourself.", color = Muted)
+                Panel(color = WarmTint) {
+                    Text("Bring in the rest of your inbox", fontWeight = FontWeight.Bold)
+                    Text("Read your SMS from a date you pick; every message (never one-time codes) lands here to sort.", color = Muted)
+                    Button(enabled = !scanning, onClick = { askingDate = true }) {
+                        Text(if (scanning) "Reading… ${scanned?.checked ?: 0} of ${scanned?.total ?: 0}" else "Read my inbox…")
+                    }
                 }
             }
         }
-        if (pending.isNotEmpty()) {
+        val oldMessages = messages.filter { it.receivedAt < weekAgo }
+        if (oldMessages.size >= 20) {
+            item {
+                Panel(color = CoolTint) {
+                    Text("${oldMessages.size} messages are more than a week old", fontWeight = FontWeight.Bold)
+                    Text("Set them aside as not payments and go through just the last 7 days. They stay in All messages.", color = Muted)
+                    Button(onClick = {
+                        val states = oldMessages.map { it.id to it.state }
+                        scope.launch { repository.setAsideMessages(states.map { it.first }) }
+                        onUndoable("Set aside ${states.size} older messages") { repository.restoreMessages(states) }
+                    }) { Text("Set aside ${oldMessages.size} older messages") }
+                }
+            }
+        }
+        if (total > 0) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
@@ -207,7 +244,8 @@ private fun PaymentsReview(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         ReviewFilter.entries.forEach { option ->
-                            val count = pending.count { it.matches(query) && option.accepts(it, today) }
+                            val count = pending.count { it.matches(query) && option.accepts(it, today) } +
+                                messages.count { option.acceptsDay(dateOf(it.receivedAt), today) && (query.isBlank() || it.body.contains(query.trim(), ignoreCase = true)) }
                             CategoryChip("${option.label} ($count)", selected = filter == option) { filter = option }
                         }
                     }
@@ -229,14 +267,14 @@ private fun PaymentsReview(
                 }
             }
         }
-        if (pending.isNotEmpty() && shown.isEmpty()) {
+        if (total > 0 && shown.isEmpty() && shownMessages.isEmpty()) {
             item { EmptyState("No matches", "Nothing waiting for review matches this search or filter.") }
         }
-        if (pending.isEmpty()) {
+        if (total == 0) {
             item {
                 Panel(color = CoolTint) {
                     Text("✓  All caught up", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Text("New payments will appear here, and you’ll get a notification after each one.", color = Muted)
+                    Text("New payments and messages will appear here as they arrive.", color = Muted)
                 }
             }
         }
@@ -246,7 +284,23 @@ private fun PaymentsReview(
                     SectionLabel("${day.dayHeader()} · ${dayItems.size} to review", Modifier.padding(top = 6.dp))
                 }
             }
-            items(dayItems, key = { it.id }) { t ->
+            items(dayItems, key = { it.key }) { item ->
+                if (item is ReviewItem.Msg) {
+                    val m = item.m
+                    MessageDecisionCard(
+                        message = m,
+                        onPayment = { adding = m },
+                        onNotPayment = {
+                            scope.launch {
+                                val result = repository.markNotMoney(m.id) ?: return@launch
+                                val extra = if (result.similarCount > 0) " and ${result.similarCount} like it" else ""
+                                onUndoable("Not a payment: set aside this$extra. Messages like it will be set aside from now on.") { repository.undoNotMoney(result) }
+                            }
+                        },
+                    )
+                    return@items
+                }
+                val t = (item as ReviewItem.Pay).t
                 ReviewCard(
                     t = t,
                     catalog = catalog,
@@ -305,6 +359,30 @@ private fun PaymentsReview(
         item { Spacer(Modifier.height(24.dp)) }
     }
 
+    if (askingDate) {
+        ScanDateDialog(onDismiss = { askingDate = false }, onPick = { date ->
+            askingDate = false
+            scanning = true
+            scope.launch {
+                container.scanner.scan(date.atStartOfDay(Zone).toInstant().toEpochMilli()) { scanned = it }
+                container.prefs.allMessagesLoaded = true
+                scanning = false
+            }
+        })
+    }
+
+    adding?.let { message ->
+        AddFromMessageDialog(
+            message = message,
+            catalog = catalog,
+            onDismiss = { adding = null },
+            onSave = { amount, direction, payee, category ->
+                adding = null
+                scope.launch { repository.addFromMessage(message, amount, direction, payee, category) }
+            },
+        )
+    }
+
     if (confirmAcceptAll) {
         AlertDialog(
             onDismissRequest = { confirmAcceptAll = false },
@@ -320,6 +398,52 @@ private fun PaymentsReview(
             },
             dismissButton = { TextButton(onClick = { confirmAcceptAll = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** One row in Review: a payment to confirm, or a message to sort into payment / not a payment. */
+private sealed interface ReviewItem {
+    val time: Long
+    val key: String
+
+    data class Pay(val t: Transaction) : ReviewItem {
+        override val time get() = t.timestampMillis
+        override val key get() = "t${t.id}"
+    }
+
+    data class Msg(val m: UnreadMessageEntity) : ReviewItem {
+        override val time get() = m.receivedAt
+        override val key get() = "m${m.id}"
+    }
+}
+
+private fun dateOf(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(Zone).toLocalDate()
+
+/** A message the app didn't read as a payment: you say whether it is one. */
+@Composable
+private fun MessageDecisionCard(message: UnreadMessageEntity, onPayment: () -> Unit, onNotPayment: () -> Unit) {
+    var expanded by remember(message.id) { mutableStateOf(false) }
+    Panel(Modifier.clickable { expanded = !expanded }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${message.sender} · ${Instant.ofEpochMilli(message.receivedAt).atZone(Zone).format(timeFormat)}",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = Faint,
+                maxLines = 1,
+            )
+            Text(
+                if (message.state == MessageState.UNREAD) "Mentions money" else "Message",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (message.state == MessageState.UNREAD) Rust else Faint,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text(message.body, style = MaterialTheme.typography.bodyMedium, maxLines = if (expanded) Int.MAX_VALUE else 4)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onNotPayment) { Text("Not a payment") }
+            OutlinedButton(onClick = onPayment) { Text("It’s a payment") }
+        }
     }
 }
 
@@ -341,6 +465,15 @@ private enum class ReviewFilter(val label: String) {
         WEEK -> t.localDate() > today.minusDays(7)
         MONEY_IN -> t.direction == Direction.CREDIT
         LARGE -> t.amountPaise >= 1_000_00
+    }
+
+    /** Messages only filter by day; the payment-only filters leave them out. */
+    fun acceptsDay(day: LocalDate, today: LocalDate): Boolean = when (this) {
+        ALL -> true
+        TODAY -> day == today
+        YESTERDAY -> day == today.minusDays(1)
+        WEEK -> day > today.minusDays(7)
+        GUESSES, MONEY_IN, LARGE -> false
     }
 }
 

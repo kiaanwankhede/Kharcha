@@ -86,6 +86,15 @@ class TransactionRepository(
     /** Every message (newest first, one-time codes left out) with what happened to it. */
     val messages: Flow<List<UnreadMessageEntity>> = unreadMessages.observeAll()
 
+    /** Messages waiting in Review for "payment" or "not a payment". */
+    val toDecide: Flow<List<UnreadMessageEntity>> = unreadMessages.observeToDecide()
+
+    /** Sets many messages aside as not money at once, without learning a pattern from each. */
+    suspend fun setAsideMessages(ids: Collection<Long>) = ids.forEach { unreadMessages.setState(it, MessageState.NOT_MONEY, null, dismissed = true) }
+
+    /** Puts messages set aside by [setAsideMessages] back as they were (id to old state). */
+    suspend fun restoreMessages(states: List<Pair<Long, String>>) = states.forEach { (id, state) -> unreadMessages.setState(id, state, null, dismissed = false) }
+
     val learnedRules: Flow<List<MessageRule>> = messageRules.observeAll().map { list -> list.map { it.toCore() } }
 
     /** What capturing one SMS produced: a new payment to announce, and the parsed message (for balance checks). */

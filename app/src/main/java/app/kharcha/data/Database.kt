@@ -377,6 +377,10 @@ interface UnreadMessageDao {
     @Query("SELECT * FROM unread_messages ORDER BY receivedAt DESC")
     fun observeAll(): Flow<List<UnreadMessageEntity>>
 
+    /** Messages nobody has decided on yet: not read as a payment, and not marked "not money". */
+    @Query("SELECT * FROM unread_messages WHERE state IN ('UNREAD', 'SKIPPED') ORDER BY receivedAt DESC")
+    fun observeToDecide(): Flow<List<UnreadMessageEntity>>
+
     @Query("SELECT * FROM unread_messages ORDER BY receivedAt DESC")
     suspend fun getAll(): List<UnreadMessageEntity>
 

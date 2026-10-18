@@ -163,6 +163,7 @@ private fun MainScreen(
     val usage = remember(reviewed, catalog) { mostUsedCategories(reviewed, catalog) }
     val byId = remember(all) { all.associateBy { it.id } }
     val unread by repository.unread.collectAsStateWithLifecycle(initialValue = emptyList())
+    val toDecide by repository.toDecide.collectAsStateWithLifecycle(initialValue = emptyList())
     val budgetList by repository.budgets.collectAsStateWithLifecycle(initialValue = emptyList())
     val bills by repository.cardBills.collectAsStateWithLifecycle(initialValue = emptyList())
     val today = java.time.LocalDate.now(Zone)
@@ -229,8 +230,8 @@ private fun MainScreen(
                             if (item != Tab.TRANSACTIONS) categoryFilterId = null
                         },
                         icon = {
-                            if (item == Tab.REVIEW && pending.isNotEmpty()) {
-                                BadgedBox(badge = { Badge { Text("${pending.size}") } }) {
+                            if (item == Tab.REVIEW && pending.size + toDecide.size > 0) {
+                                BadgedBox(badge = { Badge { Text("${pending.size + toDecide.size}") } }) {
                                     Icon(item.icon, contentDescription = null)
                                 }
                             } else {
