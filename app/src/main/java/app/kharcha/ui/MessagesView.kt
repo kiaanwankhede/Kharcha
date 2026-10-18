@@ -86,6 +86,7 @@ fun MessagesView(
     var showRules by remember { mutableStateOf(false) }
     var scan by remember { mutableStateOf<ScanProgress?>(null) }
     var scanning by remember { mutableStateOf(false) }
+    var askingDate by remember { mutableStateOf(false) }
     val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
     val shown = remember(messages, filter, query) {
@@ -154,7 +155,7 @@ fun MessagesView(
                 Panel(color = CoolTint) {
                     Text(if (messages.isEmpty()) "Load your messages" else "Load the rest of your inbox", fontWeight = FontWeight.Bold)
                     Text(
-                        "Every message is listed here (never one-time codes), so you can mark what isn't a payment. New ones appear as they arrive; read the last 6 months once to see the ones already in your inbox.",
+                        "Every message is listed here (never one-time codes), so you can mark what isn't a payment. New ones appear as they arrive; read your inbox once from a date you pick to see the ones already there.",
                         color = Muted,
                     )
                     Button(
@@ -163,15 +164,21 @@ fun MessagesView(
                             if (!hasSmsPermission(context)) {
                                 scanLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
                             } else {
-                                scanning = true
-                                scope.launch {
-                                    container.scanner.scan { scan = it }
-                                    container.prefs.allMessagesLoaded = true
-                                    scanning = false
-                                }
+                                askingDate = true
                             }
                         },
-                    ) { Text(if (scanning) "Reading… ${scan?.checked ?: 0} of ${scan?.total ?: 0}" else "Read my inbox") }
+                    ) { Text(if (scanning) "Reading… ${scan?.checked ?: 0} of ${scan?.total ?: 0}" else "Read my inbox…") }
+                    if (askingDate) {
+                        ScanDateDialog(onDismiss = { askingDate = false }, onPick = { date ->
+                            askingDate = false
+                            scanning = true
+                            scope.launch {
+                                container.scanner.scan(date.atStartOfDay(Zone).toInstant().toEpochMilli()) { scan = it }
+                                container.prefs.allMessagesLoaded = true
+                                scanning = false
+                            }
+                        })
+                    }
                 }
             }
         } else if (shown.isEmpty()) {

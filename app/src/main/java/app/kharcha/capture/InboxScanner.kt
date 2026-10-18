@@ -8,11 +8,10 @@ import kotlinx.coroutines.withContext
 
 data class ScanProgress(val checked: Int, val total: Int, val found: Int, val accounts: Int)
 
-/** Reads the existing SMS inbox once, so the app is full of history from day one. Safe to re-run. */
+/** Reads the existing SMS inbox from a date the user picks. Safe to re-run: messages already seen are skipped. */
 class InboxScanner(private val context: Context, private val repository: TransactionRepository) {
 
-    suspend fun scan(months: Long = 6, onProgress: (ScanProgress) -> Unit = {}): ScanProgress = withContext(Dispatchers.IO) {
-        val since = System.currentTimeMillis() - months * 31L * 24 * 60 * 60 * 1000
+    suspend fun scan(since: Long, onProgress: (ScanProgress) -> Unit = {}): ScanProgress = withContext(Dispatchers.IO) {
         val projection = arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE)
         val cursor = context.contentResolver.query(
             Telephony.Sms.Inbox.CONTENT_URI,

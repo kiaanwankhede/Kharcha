@@ -62,6 +62,7 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
     var showPassphraseDialog by remember { mutableStateOf(false) }
     var restoreUri by remember { mutableStateOf<Uri?>(null) }
     var scanStatus by remember { mutableStateOf<String?>(null) }
+    var askingScanDate by remember { mutableStateOf(false) }
     var sms by remember { mutableStateOf(hasSmsPermission(context)) }
     var notifications by remember { mutableStateOf(PaymentNotificationListener.isEnabled(context)) }
     var lockEnabled by remember { mutableStateOf(prefs.lockEnabled) }
@@ -262,15 +263,21 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
             if (!notifications) OutlinedButton(onClick = { openNotificationAccess(context) }) { Text("Open notification access") }
             Button(
                 enabled = sms && scanStatus?.startsWith("Scanning") != true,
-                onClick = {
+                onClick = { askingScanDate = true },
+            ) { Text("Read SMS inbox from a date…") }
+            if (askingScanDate) {
+                ScanDateDialog(onDismiss = { askingScanDate = false }, onPick = { date ->
+                    askingScanDate = false
                     scope.launch {
                         scanStatus = "Scanning…"
-                        val result = container.scanner.scan { scanStatus = "Scanning… ${it.checked} of ${it.total}" }
+                        val result = container.scanner.scan(date.atStartOfDay(Zone).toInstant().toEpochMilli()) {
+                            scanStatus = "Scanning… ${it.checked} of ${it.total}"
+                        }
                         container.prefs.allMessagesLoaded = true
-                        scanStatus = "Done. ${result.found} new transactions found."
+                        scanStatus = "Done. ${result.found} new payments found; they're waiting in Review."
                     }
-                },
-            ) { Text("Re-scan SMS inbox (6 months)") }
+                })
+            }
             scanStatus?.let { Text(it, color = Muted) }
         }
 

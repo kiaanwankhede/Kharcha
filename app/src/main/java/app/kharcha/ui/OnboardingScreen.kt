@@ -192,12 +192,13 @@ private fun Permissions(onNext: (smsGranted: Boolean) -> Unit) {
 
 @Composable
 private fun Backfill(container: AppContainer, onDone: () -> Unit) {
-    val scope = rememberCoroutineScope()
+    var from by rememberSaveable { mutableStateOf<String?>(null) }
     var progress by remember { mutableStateOf(ScanProgress(0, 0, 0, 0)) }
     var finished by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        if (!finished) {
-            container.scanner.scan { progress = it }
+    val start = from?.let(LocalDate::parse)
+    LaunchedEffect(start) {
+        if (start != null && !finished) {
+            container.scanner.scan(start.atStartOfDay(Zone).toInstant().toEpochMilli()) { progress = it }
             container.prefs.allMessagesLoaded = true
             finished = true
         }
@@ -210,8 +211,16 @@ private fun Backfill(container: AppContainer, onDone: () -> Unit) {
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        if (start == null) {
+            Text("Read messages from which date?", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text("Payments from this date on will wait in Review for you. Nothing earlier is read.", color = Muted)
+            ScanDateChoices(onPick = { from = it.toString() })
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Skip: only new messages from now") }
+            return@Column
+        }
         Text(
-            if (finished) "All set" else "Reading the last 6 months",
+            if (finished) "All set" else "Reading messages since ${start.dayHeader()}",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
@@ -220,30 +229,54 @@ private fun Backfill(container: AppContainer, onDone: () -> Unit) {
         Text("${progress.checked} of ${progress.total} messages checked", color = Muted)
         Panel(color = Sand) {
             Text("${progress.found}", fontSize = 36.sp, fontWeight = FontWeight.Bold)
-            Text("transactions found", color = Muted)
+            Text("payments to review", color = Muted)
         }
         Panel(color = Sand) {
             Text("${progress.accounts}", fontSize = 36.sp, fontWeight = FontWeight.Bold)
             Text("accounts and cards", color = Muted)
         }
         Spacer(Modifier.weight(1f))
-        if (finished) {
-            Text("Where should your review start?", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-            Text("Payments before this are accepted as they are. Everything after waits for you to review.", color = Muted)
-            fun startFrom(daysBack: Long?) {
-                scope.launch {
-                    val cutoff = daysBack?.let { LocalDate.now(Zone).minusDays(it).atStartOfDay(Zone).toInstant().toEpochMilli() }
-                    if (cutoff != null) container.repository.reviewAllBefore(cutoff)
-                    onDone()
-                }
-            }
-            Button(onClick = { startFrom(0) }, modifier = Modifier.fillMaxWidth()) { Text("Today only (recommended)") }
-            OutlinedButton(onClick = { startFrom(6) }, modifier = Modifier.fillMaxWidth()) { Text("The last 7 days") }
-            OutlinedButton(onClick = { startFrom(null) }, modifier = Modifier.fillMaxWidth()) {
-                Text("Everything (${progress.found} payments)")
-            }
-        } else {
-            TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Skip (you can re-scan from Settings)") }
-        }
+        if (finished) Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Start reviewing") }
     }
+}
+
+/** Quick start dates for reading the inbox, plus any date from the calendar. */
+@Composable
+fun ScanDateChoices(onPick: (LocalDate) -> Unit) {
+    val today = LocalDate.now(Zone)
+    val context = LocalContext.current
+    val thisMonth = today.withDayOfMonth(1)
+    val lastMonth = thisMonth.minusMonths(1)
+    fun label(d: LocalDate) = "${d.dayOfMonth} ${d.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)}"
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { onPick(today) }, modifier = Modifier.fillMaxWidth()) { Text("Today") }
+        OutlinedButton(onClick = { onPick(today.minusDays(6)) }, modifier = Modifier.fillMaxWidth()) { Text("Last 7 days (from ${label(today.minusDays(6))})") }
+        OutlinedButton(onClick = { onPick(thisMonth) }, modifier = Modifier.fillMaxWidth()) { Text("This month (from ${label(thisMonth)})") }
+        OutlinedButton(onClick = { onPick(lastMonth) }, modifier = Modifier.fillMaxWidth()) { Text("Last month too (from ${label(lastMonth)})") }
+        OutlinedButton(
+            onClick = {
+                android.app.DatePickerDialog(context, { _, y, m, d -> onPick(LocalDate.of(y, m + 1, d)) }, today.year, today.monthValue - 1, today.dayOfMonth)
+                    .apply { datePicker.maxDate = System.currentTimeMillis() }
+                    .show()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Pick a date…") }
+    }
+}
+
+/** Asks for a start date, then [onPick] reads the inbox from it. */
+@Composable
+fun ScanDateDialog(onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Read messages from which date?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Messages already in the app are skipped. New payments found wait in Review.", color = Muted)
+                ScanDateChoices(onPick = onPick)
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
