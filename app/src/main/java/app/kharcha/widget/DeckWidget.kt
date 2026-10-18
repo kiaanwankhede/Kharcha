@@ -219,7 +219,7 @@ private class DeckFactory(private val context: Context, private val widgetId: In
             if (t == null) return@forEachIndexed
             val amount = if (t.direction == Direction.CREDIT) "+${money(t.amountPaise)}" else money(t.amountPaise)
             setTextViewText(ids.second, "$amount · ${t.merchant}")
-            setTextViewText(ids.third, if (t.category.id == Category.OTHER.id) "Pick a category" + (t.hint?.let { " · $it?" } ?: "") else "${t.category.emoji} ${t.category.label} · ${t.confidence.label()}")
+            setTextViewText(ids.third, if (t.category.id == Category.OTHER.id) "Add tags" + (t.hint?.let { " · $it?" } ?: "") else "${t.category.emoji} " + (t.tags.joinToString(", ").ifEmpty { t.category.label }) + " · ${t.confidence.label()}")
             setContentDescription(accept, "Accept ${t.merchant} as ${t.category.label}")
             // Nothing to accept until it has one of your categories; tapping the card opens Review.
             val uncategorised = t.category.id == Category.OTHER.id

@@ -16,7 +16,7 @@ object WhatsNew {
     const val RELEASES_URL = "https://github.com/kiaanwankhede/Kharcha/releases/latest"
 
     val ITEMS = listOf(
-        "🏷️ Categories are yours now: type one while reviewing. If you have it, it's used; if it's close, it's suggested; if it's new, you're asked before it's created.",
+        "🏷️ Tags instead of categories: give a payment as many as you like. Type one: if you have it, it's used; if it's close, it's suggested; if it's new, you're asked first. The first tag counts in your totals; every tag has its own total.",
         "📱 Home-screen widget: swipe through review, safe to spend, today, month, budgets and bills. Accept payments right from it.",
         "＋ Add cash from Quick Settings: pull down, tap, type.",
         "🤝 Lent & borrowed: see who owes you, ask with a UPI link, pay back in one tap.",

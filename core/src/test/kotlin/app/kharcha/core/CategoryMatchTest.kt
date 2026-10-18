@@ -45,3 +45,27 @@ class CategoryMatchTest {
         assertEquals("🏷️", CategoryMatch.emojiFor("Xyz"))
     }
 }
+
+class TagCategoryTest {
+    @Test
+    fun `a tag is a category keyed by its cleaned name, and tag budgets count every tagged payment`() {
+        val food = Category.forTag(" Food ")
+        assertEquals("tag:food", food.id)
+        assertEquals("food", food.tagName)
+        assertEquals("🍔", food.emoji)
+        assertTrue(food.countsAsSpend)
+        val catalog = CategoryCatalog(listOf(food.copy(emoji = "🍛")))
+        assertEquals("🍛", catalog.tag("FOOD").emoji)
+        assertEquals(food, CategoryCatalog().tag("food"))
+
+        val zone = java.time.ZoneId.of("Asia/Kolkata")
+        val day = java.time.LocalDate.of(2026, 10, 5).atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
+        fun txn(rupees: Long, tags: List<String>) = Transaction(
+            amountPaise = rupees * 100, direction = Direction.DEBIT, timestampMillis = day, merchant = "x", merchantKey = "x",
+            category = catalog.tag(tags.first()), source = Source.SMS, rawText = "", tags = tags,
+        )
+        val budget = Budget(1, BudgetKind.CATEGORY, "tag:kids", "kids", "🧸", 500_000)
+        val status = Budgets.status(listOf(budget), listOf(txn(1000, listOf("school", "kids")), txn(500, listOf("kids")), txn(300, listOf("food"))), java.time.LocalDate.of(2026, 10, 15))
+        assertEquals(150_000L, status.single().spentPaise)
+    }
+}

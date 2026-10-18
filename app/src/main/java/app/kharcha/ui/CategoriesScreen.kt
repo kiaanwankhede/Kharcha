@@ -49,13 +49,13 @@ import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Kind
 import kotlinx.coroutines.launch
 
-/** Your own categories: a flat list you add to while reviewing, and can rename, merge or delete here. */
+/** Your tags: made as you review, renamed, merged or deleted here. */
 @Composable
 fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     val repository = container.repository
     val catalog by repository.catalog.collectAsStateWithLifecycle(initialValue = CategoryCatalog())
     val all by repository.transactions.collectAsStateWithLifecycle(initialValue = emptyList())
-    val counts = remember(all) { all.groupingBy { it.category.id }.eachCount() }
+    val counts = remember(all) { all.flatMap { it.tags }.groupingBy { it }.eachCount() }
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<Category?>(null) }
     var creating by remember { mutableStateOf<String?>(null) }
@@ -69,10 +69,10 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item { TextButton(onClick = onBack) { Text("‹ Back") } }
-        item { Text("Your categories", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        item { Text("Your tags", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
         item {
             Text(
-                "Type a category when you review a payment: if you have it, it's used; if it's close to one you have, that's suggested; otherwise you're asked whether to create it.",
+                "Give each payment one or more tags when you review it. Type a tag: if you have it, it's used; if it's close to one you have, that's suggested; otherwise you're asked before it's created. The first tag on a payment counts in your totals; every tag also gets its own total.",
                 color = Muted,
             )
         }
@@ -81,20 +81,20 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it.take(30) },
-                    placeholder = { Text("New category") },
+                    placeholder = { Text("New tag") },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
                 Button(enabled = newName.isNotBlank(), onClick = { creating = newName.trim() }) { Text("Add") }
             }
         }
-        if (catalog.mine.isEmpty()) {
-            item { EmptyState("No categories yet", "Make them as you go: review a payment and type what it was.") }
+        if (catalog.tags.isEmpty()) {
+            item { EmptyState("No tags yet", "Make them as you go: review a payment and type what it was.") }
         }
-        items(catalog.mine, key = { it.id }) { category ->
+        items(catalog.tags, key = { it.id }) { category ->
             CategoryRow(
                 category,
-                subtitle = "${counts[category.id] ?: 0} payments · tap to rename, merge or delete",
+                subtitle = "${counts[category.label] ?: 0} payments · tap to rename, merge or delete",
                 onClick = { editing = category },
             )
         }
@@ -112,13 +112,13 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     creating?.let { name ->
         CreateCategoryDialog(
             name = name,
-            similar = CategoryMatch.find(name, catalog.mine).close + listOfNotNull(CategoryMatch.find(name, catalog.mine).exact),
+            similar = CategoryMatch.find(name, catalog.tags).close + listOfNotNull(CategoryMatch.find(name, catalog.tags).exact),
             onUseExisting = { creating = null },
             onDismiss = { creating = null },
             onCreate = { label, emoji ->
                 creating = null
                 newName = ""
-                scope.launch { repository.saveCategory(Category.mine(label, emoji)) }
+                scope.launch { repository.saveCategory(Category.forTag(label, emoji)) }
             },
         )
     }
@@ -126,12 +126,12 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     editing?.let { category ->
         EditCategoryDialog(
             category = category,
-            others = catalog.mine.filter { it.id != category.id },
-            payments = counts[category.id] ?: 0,
+            others = catalog.tags.filter { it.id != category.id },
+            payments = counts[category.label] ?: 0,
             onDismiss = { editing = null },
             onSave = { label, emoji ->
                 editing = null
-                scope.launch { repository.saveCategory(category.copy(label = label, emoji = emoji)) }
+                scope.launch { repository.renameTag(category, label, emoji) }
             },
             onMerge = { into ->
                 editing = null
@@ -161,7 +161,7 @@ private fun EditCategoryDialog(
     var confirmDelete by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit category") },
+        title = { Text("Edit tag") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -170,7 +170,7 @@ private fun EditCategoryDialog(
                 }
                 if (others.isNotEmpty()) {
                     Box {
-                        OutlinedButton(onClick = { mergeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Merge into another category ▾") }
+                        OutlinedButton(onClick = { mergeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Merge into another tag ▾") }
                         DropdownMenu(expanded = mergeMenu, onDismissRequest = { mergeMenu = false }) {
                             others.forEach { other ->
                                 DropdownMenuItem(text = { Text("${other.emoji}  ${other.label}") }, onClick = {
@@ -182,13 +182,13 @@ private fun EditCategoryDialog(
                     }
                 }
                 if (confirmDelete) {
-                    Text("Delete ${category.label}? Its $payments payments go back to Uncategorised.", color = Rust)
+                    Text("Delete “${category.label}”? It comes off its $payments payments.", color = Rust)
                     Row {
                         TextButton(onClick = onDelete) { Text("Yes, delete", color = Rust) }
                         TextButton(onClick = { confirmDelete = false }) { Text("Keep it") }
                     }
                 } else {
-                    TextButton(onClick = { confirmDelete = true }) { Text("Delete category", color = Rust) }
+                    TextButton(onClick = { confirmDelete = true }) { Text("Delete tag", color = Rust) }
                 }
             }
         },
@@ -199,7 +199,7 @@ private fun EditCategoryDialog(
 
 @Composable
 fun CategoryMenuItems(catalog: CategoryCatalog, filter: (Category) -> Boolean = { true }, onPick: (Category) -> Unit) {
-    (catalog.mine.filter(filter) + Category.OTHER).forEach { option ->
+    (catalog.tags.filter(filter) + Category.OTHER).forEach { option ->
         DropdownMenuItem(text = { Text("${option.emoji}  ${option.label}") }, onClick = { onPick(option) })
     }
 }

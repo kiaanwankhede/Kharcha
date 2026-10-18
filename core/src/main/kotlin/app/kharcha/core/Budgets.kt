@@ -52,7 +52,9 @@ object Budgets {
             val matching = thisMonth.filter {
                 when (budget.kind) {
                     BudgetKind.GROUP -> groupOf(it.category).id == budget.targetId
-                    BudgetKind.CATEGORY -> it.category.id == budget.targetId
+                    // A tag budget counts every payment carrying the tag, not only where it's the main one.
+                    BudgetKind.CATEGORY -> it.category.id == budget.targetId ||
+                        (budget.targetId.startsWith(Category.TAG_PREFIX) && budget.targetId.removePrefix(Category.TAG_PREFIX) in it.tags)
                     BudgetKind.MERCHANT -> it.merchantKey == budget.targetId
                 }
             }

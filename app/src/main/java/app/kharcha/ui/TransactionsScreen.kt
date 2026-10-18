@@ -43,7 +43,7 @@ fun TransactionsScreen(
     val shown = remember(transactions, ignored, showIgnored, query, categoryFilter) {
         val q = query.trim().lowercase()
         (if (showIgnored) ignored else transactions).filter { t ->
-            (categoryFilter == null || t.category.id == categoryFilter.id || t.category.parentId == categoryFilter.id) && t.matches(q)
+            (categoryFilter == null || t.category.id == categoryFilter.id || categoryFilter.tagName in t.tags) && t.matches(q)
         }
     }
     val byDay = remember(shown) { shown.groupBy { it.localDate() } }

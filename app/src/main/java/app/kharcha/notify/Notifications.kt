@@ -97,12 +97,13 @@ object Notifications {
             .setContentIntent(openReview(context, id))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-        // Spending categories are the user's own; one the app only guessed needs picking in the app.
-        val guessed = t.category.builtIn && t.category.countsAsSpend
-        if (guessed) {
-            notification.setContentText("Looks like ${t.category.label.lowercase()}. Tap to pick a category")
-        } else {
-            notification.setContentText("${t.category.emoji} ${t.category.label}? Tap to review").addAction(0, "✓ Looks right", accept)
+        // Spending is described by the user's tags; an untagged spend needs tagging in the app.
+        when {
+            t.category.countsAsSpend && t.tags.isEmpty() -> notification.setContentText(
+                if (t.category.id == app.kharcha.core.Category.OTHER.id) "Tap to tag it" else "Looks like ${t.category.label.lowercase()}. Tap to tag it",
+            )
+            t.tags.isNotEmpty() -> notification.setContentText("🏷️ ${t.tags.joinToString(", ")}? Tap to review").addAction(0, "✓ Looks right", accept)
+            else -> notification.setContentText("${t.category.emoji} ${t.category.label}? Tap to review").addAction(0, "✓ Looks right", accept)
         }
         NotificationManagerCompat.from(context).notify(id, notification.build())
     }

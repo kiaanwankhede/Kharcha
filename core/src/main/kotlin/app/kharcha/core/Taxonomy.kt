@@ -24,6 +24,12 @@ data class Category(
 ) {
     val isGroup: Boolean get() = parentId == null
 
+    /** One of the user's tags, standing in as a category so totals and budgets work per tag. */
+    val isTag: Boolean get() = id.startsWith(TAG_PREFIX)
+
+    /** The tag name for a tag category ("food"), else null. */
+    val tagName: String? get() = if (isTag) id.removePrefix(TAG_PREFIX) else null
+
     companion object {
         private fun group(id: String, label: String, emoji: String, kind: Kind = Kind.SPENDING) =
             Category(id, label, emoji, countsAsSpend = kind == Kind.SPENDING, parentId = null, kind = kind)
@@ -133,7 +139,7 @@ data class Category(
         val TAXES = sub(G_LOANS, "loans.tax", "Income tax & govt fees", "🏛️")
         val INSURANCE = sub(G_LOANS, "loans.insurance", "Insurance premiums", "🛡️")
 
-        val OTHER = sub(G_OTHER, "other.uncategorised", "Uncategorised", "🏷️")
+        val OTHER = sub(G_OTHER, "other.uncategorised", "Untagged", "🏷️")
         /** Only appears in summaries, for withdrawn cash that has no logged spends against it. */
         val UNLOGGED_CASH = sub(G_OTHER, "other.cash", "Cash (not logged)", "💵")
         /** Only appears in summaries, for wallet money whose payments were not captured. */
@@ -244,6 +250,17 @@ data class Category(
 
         const val CUSTOM_GROUP_PREFIX = "customg_"
 
+        const val TAG_PREFIX = "tag:"
+
+        /**
+         * A tag as a category: payments count under their first (main) tag in totals. The id is the
+         * cleaned name, so the same name is always the same tag.
+         */
+        fun forTag(name: String, emoji: String = CategoryMatch.emojiFor(name)): Category {
+            val clean = Tags.clean(name)
+            return Category(TAG_PREFIX + clean, clean, emoji.ifEmpty { "🏷️" }, countsAsSpend = true, builtIn = false, parentId = null, kind = Kind.SPENDING)
+        }
+
         /** A category the user made while reviewing: flat, no group, counts as spending. */
         fun mine(label: String, emoji: String): Category = Category(
             id = "mine_" + java.util.UUID.randomUUID().toString().replace("-", "").take(12),
@@ -292,16 +309,25 @@ class CategoryCatalog(custom: List<Category> = emptyList()) {
         (Category.BUILT_IN.filter { it.kind != Kind.SPENDING } + Category.SYSTEM + Category.SYNTHETIC + Category.OTHER + mine)
             .associateBy { it.id }
 
+    /** The user's tags (with their emoji), most recently made last. */
+    val tags: List<Category> get() = mine.filter { it.isTag }
+
+    /** The tag category for [name]: the saved one with its emoji, or a fresh one. */
+    fun tag(name: String): Category = known[Category.TAG_PREFIX + Tags.clean(name)] ?: Category.forTag(name)
+
     fun childrenOf(group: Category): List<Category> = if (known.containsKey(group.id)) listOf(group) else emptyList()
 
     fun groupOf(category: Category): Category = category
 
-    fun isKnown(id: String): Boolean = known.containsKey(id)
+    fun isKnown(id: String): Boolean = known.containsKey(id) || id.startsWith(Category.TAG_PREFIX)
 
     /** Unknown ids (an old built-in spending category, a deleted category) read as Uncategorised. */
-    fun byId(id: String): Category = known[id] ?: Category.LEGACY_IDS[id]?.let { known[it.id] } ?: Category.OTHER
+    fun byId(id: String): Category =
+        known[id]
+            ?: if (id.startsWith(Category.TAG_PREFIX)) Category.forTag(id.removePrefix(Category.TAG_PREFIX))
+            else Category.LEGACY_IDS[id]?.let { known[it.id] } ?: Category.OTHER
 
     /** The old built-in name behind an id this catalog no longer knows, like "Food delivery". */
     fun hintFor(id: String): String? =
-        if (known.containsKey(id)) null else (Category.BUILT_IN.firstOrNull { it.id == id } ?: Category.LEGACY_IDS[id])?.label
+        if (isKnown(id)) null else (Category.BUILT_IN.firstOrNull { it.id == id } ?: Category.LEGACY_IDS[id])?.label
 }

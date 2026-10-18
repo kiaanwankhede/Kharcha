@@ -209,7 +209,7 @@ fun HomeScreen(
                         TextButton(onClick = { onOpenRoute("budgets") }) { Text(if (budgets.isEmpty()) "Set up ›" else "All ›") }
                     }
                     if (budgets.isEmpty()) {
-                        Text("Set monthly limits for a category or a merchant like Swiggy.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Text("Set monthly limits for a tag or a merchant like Swiggy.", color = Muted, style = MaterialTheme.typography.bodySmall)
                     } else {
                         budgets.take(3).forEach { BudgetRow(it) { onOpenRoute("budgets") } }
                     }

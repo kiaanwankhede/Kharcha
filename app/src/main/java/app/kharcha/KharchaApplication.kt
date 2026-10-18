@@ -41,7 +41,10 @@ class KharchaApplication : Application() {
                 }
             }
         }
-        container.scope.launch { container.repository.migrateToCategoryTree() }
+        container.scope.launch {
+            container.repository.migrateToCategoryTree()
+            container.repository.migrateToTags()
+        }
         keepWidgetFresh()
     }
 

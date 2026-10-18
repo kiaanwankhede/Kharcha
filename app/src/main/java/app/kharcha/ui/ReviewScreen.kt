@@ -56,6 +56,7 @@ import app.kharcha.core.CategoryMatch
 import app.kharcha.core.Direction
 import app.kharcha.core.Kind
 import app.kharcha.core.Merchants
+import app.kharcha.core.Tags
 import app.kharcha.core.Transaction
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -169,7 +170,7 @@ private fun PaymentsReview(
                 Panel(color = CoolTint) {
                     Text("${old.size} of these are more than a week old", fontWeight = FontWeight.Bold)
                     Text(
-                        "Accept them with the suggested categories and review just the last 7 days. You can still change any of them later.",
+                        "Accept them as they are and review just the last 7 days. You can still change any of them later.",
                         color = Muted,
                     )
                     Button(onClick = {
@@ -254,8 +255,8 @@ private fun PaymentsReview(
                     catalog = catalog,
                     quickPicks = usage,
                     twin = t.possibleDuplicateOf?.let(lookup),
-                    onReview = { category, remember, note ->
-                        scope.launch { repository.review(t.id, category, remember, note) }
+                    onReview = { type, tags, remember, note ->
+                        scope.launch { repository.reviewTagged(t.id, type, tags, remember, note) }
                         onUndoable("Reviewed ${t.merchant}") { repository.sendBackToReview(t.id) }
                     },
                     onIgnore = {
@@ -274,7 +275,7 @@ private fun PaymentsReview(
                             onUndoable("Not money: hidden this$extra. Messages like it will be hidden from now on.") { repository.undoNotMoney(result) }
                         }
                     },
-                    createCategory = { label, emoji -> repository.saveCategory(Category.mine(label, emoji)) },
+                    createCategory = { label, emoji -> repository.saveCategory(Category.forTag(label, emoji)) },
                 )
             }
         }
@@ -296,9 +297,9 @@ private fun PaymentsReview(
                 TextButton(onClick = { confirmAcceptAll = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         if (isFiltered) {
-                            "Accept these ${shown.size} with suggested categories"
+                            "Accept these ${shown.size} as they are"
                         } else {
-                            "Accept all ${shown.size} with suggested categories"
+                            "Accept all ${shown.size} as they are"
                         },
                     )
                 }
@@ -311,7 +312,7 @@ private fun PaymentsReview(
         AlertDialog(
             onDismissRequest = { confirmAcceptAll = false },
             title = { Text("Accept all?") },
-            text = { Text("These ${shown.size} payments will be counted with the categories shown. You can still change any of them later.") },
+            text = { Text("These ${shown.size} payments will be counted with the tags shown. You can still change any of them later.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmAcceptAll = false
@@ -355,7 +356,7 @@ private fun ReviewCard(
     catalog: CategoryCatalog,
     quickPicks: List<Category>,
     twin: Transaction?,
-    onReview: (Category, Boolean, String?) -> Unit,
+    onReview: (type: Category?, tags: List<String>, remember: Boolean, note: String?) -> Unit,
     onIgnore: () -> Unit,
     onConfirmDuplicate: () -> Unit,
     onNotDuplicate: () -> Unit,
@@ -364,7 +365,15 @@ private fun ReviewCard(
 ) {
     val brand = remember(t.id) { Merchants.brandOf(t) }
     val multiBusiness = brand?.isMultiBusiness == true
-    var category by remember(t.id) { mutableStateOf(t.category) }
+    var tags by remember(t.id) { mutableStateOf(t.tags) }
+    // Set only for money that isn't spending (a transfer, ATM cash...); spending is described by tags.
+    var type by remember(t.id) { mutableStateOf(t.category.takeIf { !it.countsAsSpend }) }
+    val category = type ?: tags.firstOrNull()?.let(catalog::tag) ?: Category.OTHER
+    val summary = when {
+        type != null -> "${category.emoji} ${category.label}" + if (tags.isEmpty()) "" else " · " + tags.joinToString(", ")
+        tags.isNotEmpty() -> "${category.emoji} " + tags.joinToString(", ")
+        else -> "No tags yet"
+    }
     // One choice shouldn't relabel every payment to a merchant that sells several things.
     var rememberForMerchant by remember(t.id) { mutableStateOf(!multiBusiness) }
     var note by remember(t.id) { mutableStateOf(t.note.orEmpty()) }
@@ -372,7 +381,7 @@ private fun ReviewCard(
     var sheetOpen by remember(t.id) { mutableStateOf(false) }
     // Sure payments start folded to one line; guesses and possible duplicates open, so you look at them.
     var expanded by remember(t.id) { mutableStateOf(t.confidence == Confidence.GUESS || twin != null) }
-    val accept = { onReview(category, rememberForMerchant, note.takeIf { it.isNotBlank() }) }
+    val accept = { onReview(type, tags, rememberForMerchant, note.takeIf { it.isNotBlank() }) }
     val swipe = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
@@ -394,10 +403,10 @@ private fun ReviewCard(
     // What the app thinks this is ("Food delivery", or each thing a store like Swiggy sells).
     val hints = remember(t.id) { (listOfNotNull(t.hint) + brand?.choices.orEmpty().map { it.label }).distinct() }
     val chips = remember(t.id, quickPicks, catalog) {
-        val fromHints = hints.mapNotNull { CategoryMatch.best(it, catalog.mine) }
-        (listOf(t.category).filter { it.id != Category.OTHER.id } + fromHints + quickPicks).distinctBy { it.id }.take(6)
+        val fromHints = hints.mapNotNull { CategoryMatch.best(it, catalog.tags) }
+        (fromHints + quickPicks).distinctBy { it.id }.take(6)
     }
-    val ideas = remember(t.id, catalog) { hints.filter { CategoryMatch.best(it, catalog.mine) == null }.take(2) }
+    val ideas = remember(t.id, catalog) { hints.filter { CategoryMatch.best(it, catalog.tags) == null }.take(2) }
     val time = Instant.ofEpochMilli(t.timestampMillis).atZone(Zone).format(timeFormat)
     val via = listOfNotNull(t.bank, t.accountLast4?.let { "··$it" }).joinToString(" ").ifEmpty {
         if (t.source.name == "NOTIFICATION") "UPI app" else "Bank SMS"
@@ -416,7 +425,7 @@ private fun ReviewCard(
                 contentAlignment = if (toRight) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
                 Text(
-                    if (toRight) "✓ ${category.label}" else "Ignore",
+                    if (toRight) "✓ $summary" else "Ignore",
                     color = if (toRight) Paper else Muted,
                     fontWeight = FontWeight.Bold,
                 )
@@ -443,10 +452,10 @@ private fun ReviewCard(
         if (!expanded) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${category.emoji} ${category.label}",
+                    summary,
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Muted,
+                    color = if (type == null && tags.isEmpty()) Rust else Muted,
                     maxLines = 1,
                 )
                 TextButton(onClick = { sheetOpen = true }) { Text("Change") }
@@ -478,7 +487,7 @@ private fun ReviewCard(
         }
         if (t.direction == Direction.CREDIT) {
             Text(
-                "Money in. If it’s a refund, file it under the category it came back from: it will lower that category instead of counting as income.",
+                "Money in. If it’s a refund, give it the tag it came back from: it will lower that tag’s spending instead of counting as income.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Blue,
             )
@@ -512,17 +521,22 @@ private fun ReviewCard(
             )
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            chips.forEach { option ->
-                CategoryChip(option, selected = option.id == category.id) { category = option }
+            type?.let { CategoryChip("${it.emoji} ${it.label}  ✕", selected = true) { type = null } }
+            tags.forEach { name ->
+                val tag = catalog.tag(name)
+                CategoryChip("${tag.emoji} ${tag.label}  ✕", selected = true) { tags = tags - name }
             }
-            ideas.forEach { idea -> IdeaChip(idea) { creating = idea } }
-            CategoryChip(label = "Type… 🔍", selected = false) { sheetOpen = true }
+            chips.filter { it.label !in tags }.forEach { option ->
+                CategoryChip(option, selected = false) { tags = tags + option.label }
+            }
+            ideas.filter { Tags.clean(it) !in tags }.forEach { idea -> IdeaChip(idea) { creating = idea } }
+            CategoryChip(label = "＋ Tag 🔍", selected = false) { sheetOpen = true }
         }
-        Text(
-            if (category.id == Category.OTHER.id) "Uncategorised: pick one of yours or type a new one" else "${category.emoji} ${category.label}",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (category.id == Category.OTHER.id) Rust else Muted,
-        )
+        if (type == null && tags.isEmpty()) {
+            Text("Add one or more tags: tap a suggestion or type one.", style = MaterialTheme.typography.bodySmall, color = Rust)
+        } else if (tags.size > 1) {
+            Text("“${tags.first()}” counts in your totals; each tag also gets its own total.", style = MaterialTheme.typography.bodySmall, color = Faint)
+        }
         when (category.kind) {
             Kind.SAVING -> Text("Saving & investing: shown as saved, not spent.", style = MaterialTheme.typography.bodySmall, color = Blue)
             Kind.INCOME -> Text("Money in: not counted as spending.", style = MaterialTheme.typography.bodySmall, color = Blue)
@@ -571,13 +585,14 @@ private fun ReviewCard(
     }
 
     if (sheetOpen) {
-        CategoryPickerSheet(
+        TagPickerSheet(
             catalog = catalog,
-            selected = category,
-            suggestions = chips,
+            selected = tags,
+            type = type,
             hints = hints,
-            onPick = {
-                category = it
+            onDone = { newType, newTags ->
+                type = newType
+                tags = newTags
                 sheetOpen = false
             },
             onDismiss = { sheetOpen = false },
@@ -588,15 +603,18 @@ private fun ReviewCard(
     creating?.let { name ->
         CreateCategoryDialog(
             name = name,
-            similar = CategoryMatch.find(name, catalog.mine).close,
+            similar = CategoryMatch.find(name, catalog.tags).close,
             onUseExisting = {
                 creating = null
-                category = it
+                if (it.label !in tags) tags = tags + it.label
             },
             onDismiss = { creating = null },
             onCreate = { label, emoji ->
                 creating = null
-                scope.launch { category = createCategory(label, emoji) }
+                scope.launch {
+                    val created = createCategory(label, emoji)
+                    if (created.label !in tags) tags = tags + created.label
+                }
             },
         )
     }

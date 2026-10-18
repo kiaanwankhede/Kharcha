@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.CategoryMatch
+import app.kharcha.core.Tags
 import kotlinx.coroutines.launch
 
 /**
@@ -90,7 +91,7 @@ fun CategoryPickerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focus),
-                    placeholder = { Text("Type a category, like Petrol or Kids") },
+                    placeholder = { Text("Type a tag, like petrol or kids") },
                     singleLine = true,
                 )
             }
@@ -131,9 +132,9 @@ fun CategoryPickerSheet(
                 }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        SectionLabel("Your categories")
+                        SectionLabel("Your tags")
                         if (mine.isEmpty()) {
-                            Text("None yet. Type a name above to make your first one.", color = Muted)
+                            Text("None yet. Type a name above to make your first tag.", color = Muted)
                         } else {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 mine.forEach { PickChip(it, it.id == selected?.id) { onPick(it) } }
@@ -189,13 +190,13 @@ fun CreateCategoryDialog(
     similar: List<Category> = emptyList(),
     onUseExisting: (Category) -> Unit = {},
 ) {
-    var label by remember { mutableStateOf(name.trim().replaceFirstChar { it.uppercase() }) }
+    var label by remember { mutableStateOf(Tags.clean(name)) }
     val guess = remember(label) { CategoryMatch.emojiFor(label) }
     var picked by remember { mutableStateOf<String?>(null) }
     val emoji = picked ?: guess
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Create a new category?") },
+        title = { Text("Create a new tag?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(label, { label = it.take(30) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -258,4 +259,160 @@ fun IdeaChip(name: String, onClick: () -> Unit) {
         style = MaterialTheme.typography.bodyMedium,
         fontWeight = FontWeight.SemiBold,
     )
+}
+
+/**
+ * Pick any number of tags for a payment, in order (the first one counts in totals). Typing works like
+ * everywhere else: an existing tag is added, close ones are suggested, a new one asks first. Money
+ * that isn't spending (a transfer, ATM cash, salary...) is picked under "Not spending" instead.
+ */
+@Composable
+fun TagPickerSheet(
+    catalog: CategoryCatalog,
+    selected: List<String>,
+    type: Category?,
+    onDone: (type: Category?, tags: List<String>) -> Unit,
+    onDismiss: () -> Unit,
+    onCreate: suspend (label: String, emoji: String) -> Category,
+    hints: List<String> = emptyList(),
+    allowTypes: Boolean = true,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val chosen = remember { androidx.compose.runtime.mutableStateListOf<String>().apply { addAll(selected) } }
+    var chosenType by remember { mutableStateOf(type?.takeIf { !it.countsAsSpend }) }
+    var query by remember { mutableStateOf("") }
+    var confirming by remember { mutableStateOf<String?>(null) }
+    var showOthers by remember { mutableStateOf(chosenType != null) }
+    val focus = remember { FocusRequester() }
+    val tags = catalog.tags
+    val matches = remember(query, tags) { CategoryMatch.find(query, tags) }
+    val fromHints = remember(hints, tags) { hints.mapNotNull { CategoryMatch.best(it, tags) } }
+    val ideas = remember(hints, tags) { hints.filter { CategoryMatch.best(it, tags) == null }.map { Tags.clean(it) }.distinct() }
+    fun add(name: String) {
+        val clean = Tags.clean(name)
+        if (clean.isNotEmpty() && clean !in chosen) chosen.add(clean)
+        query = ""
+    }
+
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Paper) {
+        LazyColumn(
+            Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("Tags", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Button(onClick = { onDone(chosenType, chosen.toList()) }) { Text("Done") }
+                }
+            }
+            if (chosen.isNotEmpty() || chosenType != null) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            chosenType?.let { t -> PickChip(t.copy(label = "${t.label}  ✕"), selected = true) { chosenType = null } }
+                            chosen.forEach { name ->
+                                val tag = catalog.tag(name)
+                                PickChip(tag.copy(label = "${tag.label}  ✕"), selected = true) { chosen.remove(name) }
+                            }
+                        }
+                        if (chosen.size > 1) Text("The first tag counts in your totals; every tag gets its own total too.", style = MaterialTheme.typography.bodySmall, color = Faint)
+                    }
+                }
+            }
+            item {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it.replace(",", "").take(30) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focus),
+                    placeholder = { Text("Type a tag, like petrol or kids") },
+                    singleLine = true,
+                )
+            }
+            if (query.isNotBlank()) {
+                matches.exact?.let { exact -> item { PickChip(exact.copy(label = "Add ${exact.label}"), selected = true) { add(exact.label) } } }
+                if (matches.close.isNotEmpty()) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SectionLabel(if (matches.exact == null) "Did you mean" else "Also close")
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                matches.close.forEach { PickChip(it, selected = false) { add(it.label) } }
+                            }
+                        }
+                    }
+                }
+                if (matches.exact == null) {
+                    item { Button(onClick = { confirming = query.trim() }, modifier = Modifier.fillMaxWidth()) { Text("＋ Create tag “${Tags.clean(query)}”") } }
+                }
+            } else {
+                val suggested = fromHints.filter { it.label !in chosen }.distinctBy { it.id }
+                if (suggested.isNotEmpty() || ideas.any { it !in chosen }) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SectionLabel("Suggested")
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                suggested.forEach { PickChip(it, selected = false) { add(it.label) } }
+                                ideas.filter { it !in chosen }.forEach { idea -> IdeaChip(idea) { confirming = idea } }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SectionLabel("Your tags")
+                        if (tags.isEmpty()) {
+                            Text("None yet. Type a name above to make your first tag.", color = Muted)
+                        } else {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                tags.forEach { tag ->
+                                    val on = tag.label in chosen
+                                    PickChip(tag, selected = on) { if (on) chosen.remove(tag.label) else add(tag.label) }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (allowTypes) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "${if (showOthers) "▾" else "▸"}  Not spending: transfers, ATM cash, salary, lent…",
+                                Modifier.clickable { showOthers = !showOthers },
+                                color = Blue,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (showOthers) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Category.SYSTEM.forEach { t ->
+                                        PickChip(t, selected = t.id == chosenType?.id) { chosenType = if (t.id == chosenType?.id) null else t }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    confirming?.let { name ->
+        CreateCategoryDialog(
+            name = name,
+            similar = CategoryMatch.find(name, tags).close,
+            onUseExisting = {
+                confirming = null
+                add(it.label)
+            },
+            onDismiss = { confirming = null },
+            onCreate = { label, emoji ->
+                confirming = null
+                scope.launch { add(onCreate(label, emoji).label) }
+            },
+        )
+    }
 }

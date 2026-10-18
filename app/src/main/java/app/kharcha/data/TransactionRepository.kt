@@ -38,6 +38,9 @@ import kotlinx.coroutines.sync.withLock
  * [contactName] looks up a phone number in the user's contacts (null without permission or no match),
  * so "UPI ··3210" can show as "Mom".
  */
+/** Merchant rules that tag rather than set a built-in type are stored as "tags:food,kids". */
+private const val TAG_RULE = "tags:"
+
 class TransactionRepository(
     private val db: KharchaDatabase,
     private val prefs: Prefs,
@@ -321,7 +324,14 @@ class TransactionRepository(
         val settled = People.suggest(t, ledger)?.let { t.copy(category = it, confidence = Confidence.LIKELY) } ?: t
         val date = java.time.Instant.ofEpochMilli(t.timestampMillis).atZone(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate()
         val tripTags = if (t.direction == Direction.DEBIT) Events.autoTags(eventDao.getAll().map { it.toCore() }, date) else emptyList()
-        return if (tripTags.isEmpty()) settled else settled.copy(tags = (settled.tags + tripTags).distinct())
+        // "Always tag Swiggy with food": the merchant's tags come first, so the main tag is right.
+        val ruleTags = rules.getAll().firstOrNull { it.merchantKey == t.merchantKey && it.category.startsWith(TAG_RULE) }
+            ?.let { Tags.decode(it.category.removePrefix(TAG_RULE)) }
+            ?.takeIf { settled.category.countsAsSpend }
+            .orEmpty()
+        val tagged = if (ruleTags.isEmpty()) settled else settled.copy(category = Category.OTHER, confidence = Confidence.SURE)
+        val allTags = (ruleTags + settled.tags + tripTags).distinct()
+        return if (allTags == settled.tags) tagged else tagged.copy(tags = allTags)
     }
 
     val events: Flow<List<Event>> = eventDao.observeAll().map { list -> list.map { it.toCore() } }
@@ -332,6 +342,7 @@ class TransactionRepository(
     suspend fun saveEvent(event: Event, tagExisting: Boolean) {
         val previous = event.id.takeIf { it > 0 }?.let { id -> eventDao.getAll().firstOrNull { it.id == id }?.toCore() }
         eventDao.upsert(event.toEntity())
+        ensureTag(event.tag)
         // Renamed: move the old tag over to the new name.
         if (previous != null && previous.tag != event.tag) {
             allTransactions().filter { previous.tag in it.tags }.forEach { t ->
@@ -351,6 +362,7 @@ class TransactionRepository(
 
     suspend fun setTags(id: Long, tags: List<String>) {
         val existing = dao.get(id) ?: return
+        tags.forEach { ensureTag(it) }
         dao.update(existing.copy(tags = Tags.encode(tags)))
     }
 
@@ -483,6 +495,41 @@ class TransactionRepository(
         checkBudgets()
     }
 
+    /** Confirms a payment with its tags (first = main) and, for money that isn't spending, its [type]. */
+    suspend fun reviewTagged(id: Long, type: Category?, tags: List<String>, rememberForMerchant: Boolean, note: String? = null) {
+        setLabels(id, type, tags, rememberForMerchant)
+        if (note != null) setNote(id, note)
+        dao.setStatus(id, ReviewStatus.REVIEWED.name)
+        checkBudgets()
+    }
+
+    /**
+     * Sets what a payment is: its [tags] in order (the first counts in totals) and, when it isn't
+     * spending, its built-in [type] (null means spending). With [rememberForMerchant] every payment to
+     * the same merchant gets the same, now and later; those keep their trip tags.
+     */
+    suspend fun setLabels(id: Long, type: Category?, tags: List<String>, rememberForMerchant: Boolean) {
+        val existing = dao.get(id) ?: return
+        val clean = tags.map(Tags::clean).filter { it.isNotEmpty() }.distinct()
+        val typeId = type?.takeIf { !it.countsAsSpend }?.id ?: Category.OTHER.id
+        clean.forEach { name -> ensureTag(name) }
+        dao.update(existing.copy(category = typeId, tags = Tags.encode(clean), confidence = Confidence.SURE.name))
+        if (rememberForMerchant) {
+            rules.upsert(MerchantRuleEntity(existing.merchantKey, if (typeId != Category.OTHER.id) typeId else TAG_RULE + Tags.encode(clean).orEmpty()))
+            val tripTags = eventDao.getAll().map { it.toCore().tag }.toSet()
+            dao.findByMerchantKey(existing.merchantKey).filter { it.id != id }.forEach { other ->
+                val trips = Tags.decode(other.tags).filter { it in tripTags && it !in clean }
+                dao.update(other.copy(category = typeId, tags = Tags.encode(clean + trips), confidence = Confidence.SURE.name))
+            }
+        }
+    }
+
+    /** Saves a tag (with a guessed emoji) the first time it's used. */
+    private suspend fun ensureTag(name: String) {
+        val tag = Category.forTag(name)
+        if (customCategories.getAll().none { it.id == tag.id }) customCategories.upsert(tag.toEntity())
+    }
+
     /** Accepts a payment with the category it already has. */
     suspend fun accept(id: Long) {
         dao.setStatus(id, ReviewStatus.REVIEWED.name)
@@ -508,18 +555,21 @@ class TransactionRepository(
         return today.size to today.filter { it.isSpend }.sumOf { it.amountPaise }
     }
 
+    /** Picking one category: a tag becomes the main tag (others kept), a built-in type keeps the tags. */
     suspend fun setCategory(id: Long, category: Category, rememberForMerchant: Boolean) {
         val existing = dao.get(id) ?: return
-        if (rememberForMerchant) {
-            rules.upsert(MerchantRuleEntity(existing.merchantKey, category.id))
-            dao.setCategoryForMerchant(existing.merchantKey, category.id)
-        } else {
-            dao.update(existing.copy(category = category.id, confidence = Confidence.SURE.name))
+        val current = Tags.decode(existing.tags)
+        val name = category.tagName
+        when {
+            name != null -> setLabels(id, null, listOf(name) + (current - name), rememberForMerchant)
+            category.countsAsSpend -> setLabels(id, null, current, rememberForMerchant)
+            else -> setLabels(id, category, current, rememberForMerchant)
         }
     }
 
     /** Records a cash payment typed in by the user. */
-    suspend fun addCash(amountPaise: Long, whatFor: String, category: Category, timestampMillis: Long): Long {
+    suspend fun addCash(amountPaise: Long, whatFor: String, category: Category, timestampMillis: Long, tags: List<String> = emptyList()): Long {
+        tags.forEach { ensureTag(it) }
         val name = Merchants.tidy(whatFor).ifEmpty { "Cash" }
         val id = dao.insert(
             Transaction(
@@ -532,6 +582,7 @@ class TransactionRepository(
                 source = Source.MANUAL,
                 rawText = "Cash, added by hand",
                 status = ReviewStatus.REVIEWED,
+                tags = tags,
             ).toEntity(),
         )
         checkBudgets()
@@ -546,7 +597,7 @@ class TransactionRepository(
     }
 
     /** Creates a category or group, or updates it if it already exists. Returns the saved category. */
-    /** Creates or renames one of the user's categories. */
+    /** Saves a tag, or another of the user's categories (emoji changes). */
     suspend fun saveCategory(category: Category): Category {
         require(!category.builtIn) { "Built-in categories can't be edited" }
         val flat = category.copy(parentId = null)
@@ -554,20 +605,70 @@ class TransactionRepository(
         return flat
     }
 
-    /** Deletes one of the user's categories; its payments and merchant rules go back to Uncategorised. */
+    /** Renames a tag everywhere (a new name is a new tag id), keeping its emoji unless [emoji] is given. */
+    suspend fun renameTag(tag: Category, newName: String, emoji: String) {
+        val renamed = Category.forTag(newName, emoji)
+        if (renamed.id == tag.id) {
+            saveCategory(tag.copy(emoji = emoji))
+            return
+        }
+        saveCategory(renamed)
+        mergeCategory(tag, renamed)
+    }
+
+    /** Deletes a tag: it comes off every payment and every merchant rule. */
     suspend fun deleteCategory(category: Category) {
         if (category.builtIn) return
-        dao.moveCategory(category.id, Category.OTHER.id)
-        rules.deleteForCategory(category.id)
+        val name = category.tagName
+        if (name != null) {
+            replaceTag(name, null)
+        } else {
+            dao.moveCategory(category.id, Category.OTHER.id)
+            rules.deleteForCategory(category.id)
+        }
         customCategories.delete(category.id)
     }
 
-    /** Moves every payment and rule from [from] into [into], then deletes [from]. */
+    /** Moves every payment and rule from tag [from] to tag [into], then deletes [from]. */
     suspend fun mergeCategory(from: Category, into: Category) {
         if (from.builtIn || from.id == into.id) return
-        dao.moveCategory(from.id, into.id)
-        rules.getAll().filter { it.category == from.id }.forEach { rules.upsert(it.copy(category = into.id)) }
+        val fromName = from.tagName ?: return
+        replaceTag(fromName, into.tagName)
         customCategories.delete(from.id)
+    }
+
+    /** Swaps tag [from] for [to] (or removes it when [to] is null) on payments and merchant rules. */
+    private suspend fun replaceTag(from: String, to: String?) {
+        fun swap(list: List<String>) = list.map { if (it == from) to else it }.filterNotNull().distinct()
+        dao.getAll().filter { from in Tags.decode(it.tags) }.forEach { e ->
+            dao.update(e.copy(tags = Tags.encode(swap(Tags.decode(e.tags)))))
+        }
+        rules.getAll().filter { it.category.startsWith(TAG_RULE) }.forEach { rule ->
+            val tags = Tags.decode(rule.category.removePrefix(TAG_RULE))
+            if (from in tags) {
+                val left = swap(tags)
+                if (left.isEmpty()) rules.deleteForCategory(rule.category) else rules.upsert(rule.copy(category = TAG_RULE + Tags.encode(left)))
+            }
+        }
+    }
+
+    /**
+     * One-time move from categories to tags: each of the user's own categories becomes a tag of the
+     * same name, put first on its payments, and merchant rules follow.
+     */
+    suspend fun migrateToTags() {
+        if (prefs.tagsMigrated) return
+        customCategories.getAll().filterNot { it.id.startsWith(Category.TAG_PREFIX) }.forEach { old ->
+            val tag = Category.forTag(old.label, old.emoji)
+            val name = tag.tagName ?: return@forEach
+            customCategories.upsert(tag.toEntity())
+            dao.getAll().filter { it.category == old.id }.forEach { e ->
+                dao.update(e.copy(category = Category.OTHER.id, tags = Tags.encode(listOf(name) + Tags.decode(e.tags))))
+            }
+            rules.getAll().filter { it.category == old.id }.forEach { rules.upsert(it.copy(category = TAG_RULE + name)) }
+            customCategories.delete(old.id)
+        }
+        prefs.tagsMigrated = true
     }
 
     /**

@@ -201,35 +201,44 @@ data class MerchantRuleEntity(
     val category: String,
 )
 
-fun TransactionEntity.toCore(catalog: CategoryCatalog) = Transaction(
-    id = id,
-    amountPaise = amountPaise,
-    direction = Direction.valueOf(direction),
-    timestampMillis = timestampMillis,
-    merchant = merchant,
-    merchantKey = merchantKey,
-    category = catalog.byId(category),
-    hint = catalog.hintFor(category),
-    source = Source.valueOf(source),
-    rawText = rawText,
-    accountLast4 = accountLast4,
-    bank = bank,
-    vpa = vpa,
-    reference = reference,
-    balancePaise = balancePaise,
-    note = note,
-    status = runCatching { ReviewStatus.valueOf(status) }.getOrDefault(ReviewStatus.PENDING),
-    possibleDuplicateOf = possibleDuplicateOf,
-    splits = SplitCodec.decode(splitsJson, catalog::byId),
-    // Still on an old built-in category: it is Uncategorised now, so it needs a look.
-    confidence = if (!catalog.isKnown(category) && Category.LEGACY_IDS[category] != Category.OTHER) {
-        Confidence.GUESS
-    } else {
-        confidence?.let { runCatching { Confidence.valueOf(it) }.getOrNull() } ?: Confidence.SURE
-    },
-    tags = Tags.decode(tags),
-    reimburse = reimburse?.let { runCatching { Reimburse.valueOf(it) }.getOrNull() },
-)
+/**
+ * Payments carry tags (first = main). The category column only says what kind of money it is: a
+ * built-in non-spending type, or Uncategorised for spending. A tagged spend reads as its main tag.
+ */
+fun TransactionEntity.toCore(catalog: CategoryCatalog): Transaction {
+    val tagList = Tags.decode(tags)
+    val stored = catalog.byId(category)
+    val main = if (stored.countsAsSpend && tagList.isNotEmpty()) catalog.tag(tagList.first()) else stored
+    return Transaction(
+        id = id,
+        amountPaise = amountPaise,
+        direction = Direction.valueOf(direction),
+        timestampMillis = timestampMillis,
+        merchant = merchant,
+        merchantKey = merchantKey,
+        category = main,
+        source = Source.valueOf(source),
+        rawText = rawText,
+        accountLast4 = accountLast4,
+        bank = bank,
+        vpa = vpa,
+        reference = reference,
+        balancePaise = balancePaise,
+        note = note,
+        status = runCatching { ReviewStatus.valueOf(status) }.getOrDefault(ReviewStatus.PENDING),
+        possibleDuplicateOf = possibleDuplicateOf,
+        splits = SplitCodec.decode(splitsJson, catalog::byId),
+        // An untagged spend still on an old built-in category needs a look.
+        confidence = if (tagList.isEmpty() && !catalog.isKnown(category)) {
+            Confidence.GUESS
+        } else {
+            confidence?.let { runCatching { Confidence.valueOf(it) }.getOrNull() } ?: Confidence.SURE
+        },
+        tags = tagList,
+        reimburse = reimburse?.let { runCatching { Reimburse.valueOf(it) }.getOrNull() },
+        hint = if (tagList.isEmpty()) catalog.hintFor(category) else null,
+    )
+}
 
 fun Transaction.toEntity() = TransactionEntity(
     id = id,
@@ -238,7 +247,7 @@ fun Transaction.toEntity() = TransactionEntity(
     timestampMillis = timestampMillis,
     merchant = merchant,
     merchantKey = merchantKey,
-    category = category.id,
+    category = if (category.isTag) Category.OTHER.id else category.id,
     source = source.name,
     rawText = rawText,
     accountLast4 = accountLast4,
@@ -251,7 +260,7 @@ fun Transaction.toEntity() = TransactionEntity(
     possibleDuplicateOf = possibleDuplicateOf,
     splitsJson = SplitCodec.encode(splits),
     confidence = confidence.name,
-    tags = Tags.encode(tags),
+    tags = Tags.encode(listOfNotNull(category.tagName) + tags),
     reimburse = reimburse?.name,
 )
 

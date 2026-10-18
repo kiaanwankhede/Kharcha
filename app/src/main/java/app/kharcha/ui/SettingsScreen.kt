@@ -189,10 +189,10 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
             Text("You can also rename any payee from its payment screen.", style = MaterialTheme.typography.bodySmall, color = Faint)
         }
 
-        SectionLabel("Categories")
+        SectionLabel("Tags")
         Panel {
-            Text("Add your own categories with an emoji, or rename and delete the ones you made.", color = Muted)
-            Button(onClick = openCategories) { Text("Manage categories") }
+            Text("Rename, merge or delete your tags, or change their emoji.", color = Muted)
+            Button(onClick = openCategories) { Text("Manage tags") }
         }
 
         SectionLabel("Monthly limit")

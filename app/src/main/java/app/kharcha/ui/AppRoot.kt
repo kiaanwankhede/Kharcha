@@ -293,20 +293,17 @@ private fun MainScreen(
         AddCashDialog(
             catalog = catalog,
             onDismiss = { addingCash = false },
-            onCreateCategory = { label, emoji -> repository.saveCategory(Category.mine(label, emoji)) },
-            onSave = { amountPaise, whatFor, category, timestampMillis ->
+            onCreateCategory = { label, emoji -> repository.saveCategory(Category.forTag(label, emoji)) },
+            onSave = { amountPaise, whatFor, tags, timestampMillis ->
                 addingCash = false
-                scope.launch { repository.addCash(amountPaise, whatFor, category, timestampMillis) }
+                scope.launch { repository.addCash(amountPaise, whatFor, Category.OTHER, timestampMillis, tags) }
             },
         )
     }
 }
 
-/** The user's categories they pick most, for one-tap choices when reviewing; their newest ones until there's history. */
+/** The tags used most, for one-tap choices when reviewing; the newest ones until there's history. */
 private fun mostUsedCategories(reviewed: List<Transaction>, catalog: CategoryCatalog): List<Category> {
-    val counts = reviewed.asSequence()
-        .filter { catalog.mine.any { c -> c.id == it.category.id } }
-        .groupingBy { it.category.id }
-        .eachCount()
-    return catalog.mine.sortedByDescending { counts[it.id] ?: 0 }.take(5)
+    val counts = reviewed.flatMap { it.tags }.groupingBy { it }.eachCount()
+    return catalog.tags.sortedByDescending { counts[it.label] ?: 0 }.take(5)
 }

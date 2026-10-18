@@ -30,17 +30,17 @@ import app.kharcha.core.Money
 import java.time.LocalDate
 import java.time.LocalTime
 
-/** Quick entry for a cash payment: amount, what for, category, which day. */
+/** Quick entry for a cash payment: amount, what for, tags, which day. */
 @Composable
 fun AddCashDialog(
     catalog: CategoryCatalog,
     onDismiss: () -> Unit,
-    onSave: (amountPaise: Long, whatFor: String, category: Category, timestampMillis: Long) -> Unit,
+    onSave: (amountPaise: Long, whatFor: String, tags: List<String>, timestampMillis: Long) -> Unit,
     onCreateCategory: (suspend (label: String, emoji: String) -> Category)? = null,
 ) {
     var amount by remember { mutableStateOf("") }
     var whatFor by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf(Category.OTHER) }
+    var tags by remember { mutableStateOf(emptyList<String>()) }
     var daysAgo by remember { mutableIntStateOf(0) }
     var menuOpen by remember { mutableStateOf(false) }
     val paise = Money.parsePaise(amount)
@@ -70,7 +70,7 @@ fun AddCashDialog(
                 )
                 Box {
                     OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("${category.emoji}  ${category.label}  ▾")
+                        Text(if (tags.isEmpty()) "＋ Tags" else tags.joinToString(", ") { "${catalog.tag(it).emoji} $it" } + "  ▾")
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -85,7 +85,7 @@ fun AddCashDialog(
                 enabled = paise != null,
                 onClick = {
                     val time = if (daysAgo == 0) LocalTime.now(Zone) else LocalTime.NOON
-                    onSave(paise!!, whatFor, category, day.atTime(time).atZone(Zone).toInstant().toEpochMilli())
+                    onSave(paise!!, whatFor, tags, day.atTime(time).atZone(Zone).toInstant().toEpochMilli())
                 },
             ) { Text("Add") }
         },
@@ -93,17 +93,18 @@ fun AddCashDialog(
     )
 
     if (menuOpen) {
-        CategoryPickerSheet(
+        TagPickerSheet(
             catalog = catalog,
-            selected = category,
-            filter = { it.countsAsSpend },
+            selected = tags,
+            type = null,
+            allowTypes = false,
             hints = listOf(whatFor).filter { it.isNotBlank() },
-            onCreate = onCreateCategory,
-            onPick = {
-                category = it
+            onDone = { _, picked ->
+                tags = picked
                 menuOpen = false
             },
             onDismiss = { menuOpen = false },
+            onCreate = onCreateCategory ?: { label, emoji -> Category.forTag(label, emoji) },
         )
     }
 }

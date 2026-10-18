@@ -62,7 +62,6 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
     var renaming by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var splitting by remember { mutableStateOf(false) }
-    var tagging by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -103,33 +102,23 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
 
         Panel(color = Sand) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Category", Modifier.weight(1f), color = Muted)
-                Box {
-                    TextButton(onClick = { menuOpen = true }) {
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("${txn.category.emoji} ${txn.category.label}  ▾", fontWeight = FontWeight.Bold)
-                            txn.hint?.let { Text("Looks like $it", style = MaterialTheme.typography.bodySmall, color = Faint) }
-                        }
-                    }
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Always use this for ${txn.merchant}", Modifier.weight(1f), color = Blue, fontWeight = FontWeight.SemiBold)
-                Switch(checked = rememberForMerchant, onCheckedChange = { rememberForMerchant = it })
-            }
-        }
-
-        Panel(color = Sand) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Tags", Modifier.weight(1f), color = Muted)
-                TextButton(onClick = { tagging = true }) { Text("＋ Tag") }
+                TextButton(onClick = { menuOpen = true }) { Text(if (txn.tags.isEmpty()) "＋ Add" else "Edit") }
             }
-            if (txn.tags.isNotEmpty()) {
+            val typeLabel = txn.category.takeIf { !it.countsAsSpend }
+            if (typeLabel != null || txn.tags.isNotEmpty()) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    typeLabel?.let { AssistChip(onClick = { menuOpen = true }, label = { Text("${it.emoji} ${it.label}") }) }
                     txn.tags.forEach { tag ->
-                        AssistChip(onClick = { scope.launch { repository.setTags(txn.id, txn.tags - tag) } }, label = { Text("$tag  ✕") })
+                        AssistChip(onClick = { scope.launch { repository.setTags(txn.id, txn.tags - tag) } }, label = { Text("${catalog.tag(tag).emoji} $tag  ✕") })
                     }
                 }
+            } else {
+                Text(txn.hint?.let { "No tags yet · looks like $it" } ?: "No tags yet", color = Rust, style = MaterialTheme.typography.bodySmall)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Same tags for every ${txn.merchant} payment", Modifier.weight(1f), color = Blue, fontWeight = FontWeight.SemiBold)
+                Switch(checked = rememberForMerchant, onCheckedChange = { rememberForMerchant = it })
             }
             if (txn.direction == Direction.DEBIT) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -202,16 +191,17 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
         Text(txn.rawText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Muted)
 
         if (menuOpen) {
-            CategoryPickerSheet(
+            TagPickerSheet(
                 catalog = catalog,
-                selected = txn.category,
+                selected = txn.tags,
+                type = txn.category,
                 hints = (listOfNotNull(txn.hint) + Merchants.brandOf(txn)?.choices.orEmpty().map { it.label }).distinct(),
-                onCreate = { label, emoji -> repository.saveCategory(Category.mine(label, emoji)) },
-                onPick = { category ->
+                onDone = { type, tags ->
                     menuOpen = false
-                    scope.launch { repository.setCategory(txn.id, category, rememberForMerchant) }
+                    scope.launch { repository.setLabels(txn.id, type, tags, rememberForMerchant) }
                 },
                 onDismiss = { menuOpen = false },
+                onCreate = { label, emoji -> repository.saveCategory(Category.forTag(label, emoji)) },
             )
         }
         if (renaming) {
@@ -243,30 +233,6 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
                     splitting = false
                     scope.launch { repository.setSplits(txn.id, parts) }
                 },
-            )
-        }
-
-        if (tagging) {
-            val everything by repository.transactions.collectAsStateWithLifecycle(initialValue = emptyList())
-            val known = remember(everything) { Tags.inUse(everything) }
-            var text by remember { mutableStateOf("") }
-            val add = { tag: String ->
-                tagging = false
-                scope.launch { repository.setTags(txn.id, txn.tags + tag) }
-                Unit
-            }
-            AlertDialog(
-                onDismissRequest = { tagging = false },
-                title = { Text("Add a tag") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(text, { text = it.replace(",", "").take(30) }, label = { Text("Tag (like office, goa trip)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        val suggestions = known.filter { it !in txn.tags && it.contains(Tags.clean(text)) }.take(6)
-                        suggestions.forEach { tag -> TextButton(onClick = { add(tag) }) { Text("# $tag") } }
-                    }
-                },
-                confirmButton = { TextButton(enabled = Tags.clean(text).isNotEmpty(), onClick = { add(Tags.clean(text)) }) { Text("Add") } },
-                dismissButton = { TextButton(onClick = { tagging = false }) { Text("Cancel") } },
             )
         }
 
