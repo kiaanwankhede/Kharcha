@@ -546,34 +546,28 @@ class TransactionRepository(
     }
 
     /** Creates a category or group, or updates it if it already exists. Returns the saved category. */
+    /** Creates or renames one of the user's categories. */
     suspend fun saveCategory(category: Category): Category {
         require(!category.builtIn) { "Built-in categories can't be edited" }
-        customCategories.upsert(category.toEntity())
-        if (category.isGroup) {
-            // A group's subcategories follow its kind.
-            customCategories.getAll().filter { it.parentId == category.id }.forEach {
-                customCategories.upsert(it.copy(kind = category.kind.name, countsAsSpend = category.countsAsSpend))
-            }
-        }
-        return category
+        val flat = category.copy(parentId = null)
+        customCategories.upsert(flat.toEntity())
+        return flat
     }
 
-    /**
-     * Deletes a custom category; its transactions and merchant rules move to Uncategorised. Deleting a
-     * custom group moves its subcategories to the Other group instead.
-     */
+    /** Deletes one of the user's categories; its payments and merchant rules go back to Uncategorised. */
     suspend fun deleteCategory(category: Category) {
         if (category.builtIn) return
-        if (category.isGroup) {
-            customCategories.getAll().filter { it.parentId == category.id }.forEach {
-                customCategories.upsert(it.copy(parentId = Category.G_OTHER.id, kind = Category.G_OTHER.kind.name))
-            }
-            customCategories.delete(category.id)
-            return
-        }
         dao.moveCategory(category.id, Category.OTHER.id)
         rules.deleteForCategory(category.id)
         customCategories.delete(category.id)
+    }
+
+    /** Moves every payment and rule from [from] into [into], then deletes [from]. */
+    suspend fun mergeCategory(from: Category, into: Category) {
+        if (from.builtIn || from.id == into.id) return
+        dao.moveCategory(from.id, into.id)
+        rules.getAll().filter { it.category == from.id }.forEach { rules.upsert(it.copy(category = into.id)) }
+        customCategories.delete(from.id)
     }
 
     /**
@@ -604,7 +598,7 @@ class TransactionRepository(
             transactions = dao.getAll().map { it.toCore(catalog) },
             merchantRules = currentRules(catalog),
             monthlyLimitPaise = prefs.monthlyLimitPaise,
-            customCategories = catalog.groups.filterNot { it.builtIn } + catalog.all.filterNot { it.builtIn },
+            customCategories = catalog.mine,
             budgets = budgetDao.getAll().map { app.kharcha.core.BackupBudget.of(it.toCore()) },
             payeeNames = currentPayeeNames(),
             events = eventDao.getAll().map { app.kharcha.core.BackupEvent.of(it.toCore()) },
@@ -645,6 +639,7 @@ class TransactionRepository(
 
     private suspend fun currentCatalog() = CategoryCatalog(customCategories.getAll().map { it.toCore() })
 
+    // Rules pointing at the old built-in spending categories no longer apply.
     private suspend fun currentRules(catalog: CategoryCatalog): Map<String, Category> =
-        rules.getAll().associate { rule -> rule.merchantKey to catalog.byId(rule.category) }
+        rules.getAll().filter { catalog.isKnown(it.category) }.associate { rule -> rule.merchantKey to catalog.byId(rule.category) }
 }

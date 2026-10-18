@@ -209,7 +209,7 @@ fun HomeScreen(
                         TextButton(onClick = { onOpenRoute("budgets") }) { Text(if (budgets.isEmpty()) "Set up ›" else "All ›") }
                     }
                     if (budgets.isEmpty()) {
-                        Text("Set monthly limits for a group, a subcategory or a merchant like Swiggy.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Text("Set monthly limits for a category or a merchant like Swiggy.", color = Muted, style = MaterialTheme.typography.bodySmall)
                     } else {
                         budgets.take(3).forEach { BudgetRow(it) { onOpenRoute("budgets") } }
                     }
@@ -291,7 +291,7 @@ fun HomeScreen(
                         Column(Modifier.weight(1f)) {
                             Text(group.group.label, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "$share% of spending · ${group.children.size} ${if (group.children.size == 1) "subcategory" else "subcategories"} ${if (expanded) "▴" else "▾"}",
+                                "$share% of spending ${if (expanded) "▴" else "▾"}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Faint,
                             )

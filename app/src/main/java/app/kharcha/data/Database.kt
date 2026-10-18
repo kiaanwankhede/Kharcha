@@ -209,6 +209,7 @@ fun TransactionEntity.toCore(catalog: CategoryCatalog) = Transaction(
     merchant = merchant,
     merchantKey = merchantKey,
     category = catalog.byId(category),
+    hint = catalog.hintFor(category),
     source = Source.valueOf(source),
     rawText = rawText,
     accountLast4 = accountLast4,
@@ -220,7 +221,12 @@ fun TransactionEntity.toCore(catalog: CategoryCatalog) = Transaction(
     status = runCatching { ReviewStatus.valueOf(status) }.getOrDefault(ReviewStatus.PENDING),
     possibleDuplicateOf = possibleDuplicateOf,
     splits = SplitCodec.decode(splitsJson, catalog::byId),
-    confidence = confidence?.let { runCatching { Confidence.valueOf(it) }.getOrNull() } ?: Confidence.SURE,
+    // Still on an old built-in category: it is Uncategorised now, so it needs a look.
+    confidence = if (!catalog.isKnown(category) && Category.LEGACY_IDS[category] != Category.OTHER) {
+        Confidence.GUESS
+    } else {
+        confidence?.let { runCatching { Confidence.valueOf(it) }.getOrNull() } ?: Confidence.SURE
+    },
     tags = Tags.decode(tags),
     reimburse = reimburse?.let { runCatching { Reimburse.valueOf(it) }.getOrNull() },
 )

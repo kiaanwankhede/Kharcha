@@ -91,7 +91,7 @@ class MonthlyTotalsTest {
         val payload = BackupPayload(createdAtMillis = 1, transactions = emptyList(), customCategories = listOf(mine), merchantRules = mapOf("vet" to mine))
         val decoded = BackupCodec.decode(BackupCodec.encode(payload, "passphrase1".toCharArray()), "passphrase1".toCharArray())
         assertEquals(payload, decoded)
-        assertEquals(mine, CategoryCatalog(decoded.customCategories).byId(mine.id))
+        assertEquals(mine.copy(parentId = null), CategoryCatalog(decoded.customCategories).byId(mine.id))
         assertEquals(Category.OTHER, CategoryCatalog().byId("custom_gone"))
     }
 }
@@ -187,26 +187,33 @@ class WalletTest {
     }
 }
 
-class CustomGroupTest {
+class FlatCategoriesTest {
     @Test
-    fun `user groups hold user subcategories and total like built-in ones`() {
-        val kids = Category.customGroup("Kids", "🧒")
-        val school = Category.custom("School van", "🚐", kids)
-        val catalog = CategoryCatalog(listOf(kids, school))
-        assertEquals(kids, catalog.groupOf(school))
-        assertEquals(listOf(school.id), catalog.childrenOf(kids).map { it.id })
-        assertTrue(kids in catalog.groups)
+    fun `the user's categories are flat, each its own group, and old built-in spending ids become hints`() {
+        val petrol = Category.mine("Petrol", "⛽")
+        val catalog = CategoryCatalog(listOf(petrol))
+        assertEquals(petrol, catalog.groupOf(petrol))
+        assertEquals(listOf(petrol) + Category.SYSTEM, catalog.all)
+        assertTrue(Category.FOOD_DELIVERY !in catalog.all)
+        assertEquals(Category.OTHER, catalog.byId(Category.FOOD_DELIVERY.id))
+        assertEquals("Food delivery", catalog.hintFor(Category.FOOD_DELIVERY.id))
+        // Old non-spending ids keep their meaning, so a SIP never turns into spending.
+        assertEquals(Category.MUTUAL_FUNDS, catalog.byId(Category.MUTUAL_FUNDS.id))
+        assertEquals(null, catalog.hintFor(petrol.id))
 
         val zone = ZoneId.of("Asia/Kolkata")
         val t = Transaction(
             amountPaise = 300000, direction = Direction.DEBIT,
             timestampMillis = LocalDate.of(2026, 10, 3).atTime(9, 0).atZone(zone).toInstant().toEpochMilli(),
-            merchant = "Van", merchantKey = "van", category = catalog.byId(school.id), source = Source.MANUAL, rawText = "",
+            merchant = "HP", merchantKey = "hp", category = catalog.byId(petrol.id), source = Source.SMS, rawText = "",
         )
         val groups = InsightsEngine(zone).summary(listOf(t), LocalDate.of(2026, 10, 17)).byGroup(catalog::groupOf)
-        assertEquals(kids, groups.single().group)
+        assertEquals(petrol, groups.single().group)
+    }
 
-        // A deleted group's subcategories fall back to Other.
-        assertEquals(Category.G_OTHER, CategoryCatalog(listOf(school)).groupOf(CategoryCatalog(listOf(school)).byId(school.id)))
+    @Test
+    fun `old custom categories under a group come through flat`() {
+        val old = Category.custom("School van", "🚐", Category.G_EDUCATION)
+        assertEquals(old.copy(parentId = null), CategoryCatalog(listOf(old)).byId(old.id))
     }
 }

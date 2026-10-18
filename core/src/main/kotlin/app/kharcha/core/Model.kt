@@ -71,6 +71,8 @@ data class Transaction(
     val tags: List<String> = emptyList(),
     /** Set when the office (or someone else) will pay this back; such payments are not your spending. */
     val reimburse: Reimburse? = null,
+    /** For an Uncategorised payment: what the app thinks it is ("Food delivery"), to suggest a category. */
+    val hint: String? = null,
 ) {
     /** Spending by its category, before taking out reimbursable payments. */
     private val spendCategory: Boolean get() = direction == Direction.DEBIT && category.countsAsSpend

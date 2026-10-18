@@ -94,13 +94,17 @@ object Notifications {
         val notification = NotificationCompat.Builder(context, CHANNEL_PAYMENTS)
             .setSmallIcon(R.drawable.ic_stat_rupee)
             .setContentTitle(title)
-            .setContentText("${t.category.emoji} ${t.category.label}? Tap to review")
             .setContentIntent(openReview(context, id))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .addAction(0, "✓ Looks right", accept)
-            .build()
-        NotificationManagerCompat.from(context).notify(id, notification)
+        // Spending categories are the user's own; one the app only guessed needs picking in the app.
+        val guessed = t.category.builtIn && t.category.countsAsSpend
+        if (guessed) {
+            notification.setContentText("Looks like ${t.category.label.lowercase()}. Tap to pick a category")
+        } else {
+            notification.setContentText("${t.category.emoji} ${t.category.label}? Tap to review").addAction(0, "✓ Looks right", accept)
+        }
+        NotificationManagerCompat.from(context).notify(id, notification.build())
     }
 
     /** End-of-day summary: today's payments and spend, and what is still waiting for review. */

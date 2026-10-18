@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import app.kharcha.core.CategoryMatch
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,15 +49,17 @@ import app.kharcha.core.CategoryCatalog
 import app.kharcha.core.Kind
 import kotlinx.coroutines.launch
 
+/** Your own categories: a flat list you add to while reviewing, and can rename, merge or delete here. */
 @Composable
 fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     val repository = container.repository
     val catalog by repository.catalog.collectAsStateWithLifecycle(initialValue = CategoryCatalog())
+    val all by repository.transactions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val counts = remember(all) { all.groupingBy { it.category.id }.eachCount() }
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<Category?>(null) }
-    var creatingIn by remember { mutableStateOf<Category?>(null) }
-    var editingGroup by remember { mutableStateOf<Category?>(null) }
-    var creatingGroup by remember { mutableStateOf(false) }
+    var creating by remember { mutableStateOf<String?>(null) }
+    var newName by remember { mutableStateOf("") }
 
     LazyColumn(
         Modifier
@@ -65,114 +69,73 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item { TextButton(onClick = onBack) { Text("‹ Back") } }
-        item { Text("Categories", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        item { Text("Your categories", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
         item {
             Text(
-                "Pick a subcategory when you review; totals roll up into its group. Add your own subcategories under any group, or make your own groups.",
+                "Type a category when you review a payment: if you have it, it's used; if it's close to one you have, that's suggested; otherwise you're asked whether to create it.",
                 color = Muted,
             )
         }
-        item { Button(onClick = { creatingGroup = true }, modifier = Modifier.fillMaxWidth()) { Text("＋ New group") } }
-        catalog.groups.forEach { group ->
-            item(key = "g-${group.id}") {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "${group.emoji}  ${group.label}" + if (group.builtIn) "" else "  ✎",
-                        Modifier
-                            .weight(1f)
-                            .then(if (group.builtIn) Modifier else Modifier.clickable { editingGroup = group }),
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    TextButton(onClick = { creatingIn = group }) { Text("＋ Add") }
-                }
-                val note = when (group.kind) {
-                    Kind.SAVING -> "Shown as saved, not spent"
-                    Kind.MOVEMENT -> "Never counted as spending"
-                    Kind.INCOME -> "Money coming in"
-                    Kind.SPENDING -> null
-                }
-                note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Faint) }
-            }
-            items(catalog.childrenOf(group), key = { it.id }) { category ->
-                CategoryRow(
-                    category,
-                    subtitle = when {
-                        !category.builtIn -> "Yours · tap to edit"
-                        category.kind != group.kind -> "Not counted as spending"
-                        else -> null
-                    },
-                    onClick = if (category.builtIn) null else ({ editing = category }),
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it.take(30) },
+                    placeholder = { Text("New category") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
                 )
+                Button(enabled = newName.isNotBlank(), onClick = { creating = newName.trim() }) { Text("Add") }
             }
+        }
+        if (catalog.mine.isEmpty()) {
+            item { EmptyState("No categories yet", "Make them as you go: review a payment and type what it was.") }
+        }
+        items(catalog.mine, key = { it.id }) { category ->
+            CategoryRow(
+                category,
+                subtitle = "${counts[category.id] ?: 0} payments · tap to rename, merge or delete",
+                onClick = { editing = category },
+            )
+        }
+        item {
+            Text(
+                "Not spending (built in, so transfers, ATM cash and wallet top-ups are never counted twice): " +
+                    Category.SYSTEM.joinToString(", ") { it.label.lowercase() } + ".",
+                Modifier.padding(top = 12.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = Faint,
+            )
         }
     }
 
-    if (creatingGroup) {
-        GroupEditorDialog(
-            initial = null,
-            onDismiss = { creatingGroup = false },
-            onSave = { label, emoji, kind ->
-                creatingGroup = false
-                scope.launch { repository.saveCategory(Category.customGroup(label, emoji, kind)) }
+    creating?.let { name ->
+        CreateCategoryDialog(
+            name = name,
+            similar = CategoryMatch.find(name, catalog.mine).close + listOfNotNull(CategoryMatch.find(name, catalog.mine).exact),
+            onUseExisting = { creating = null },
+            onDismiss = { creating = null },
+            onCreate = { label, emoji ->
+                creating = null
+                newName = ""
+                scope.launch { repository.saveCategory(Category.mine(label, emoji)) }
             },
         )
     }
-    editingGroup?.let { group ->
-        GroupEditorDialog(
-            initial = group,
-            subcategoryCount = catalog.childrenOf(group).size,
-            onDismiss = { editingGroup = null },
-            onSave = { label, emoji, kind ->
-                editingGroup = null
-                scope.launch {
-                    repository.saveCategory(
-                        group.copy(label = label.trim(), emoji = emoji.trim().ifEmpty { "📁" }, kind = kind, countsAsSpend = kind == Kind.SPENDING),
-                    )
-                }
-            },
-            onDelete = {
-                editingGroup = null
-                scope.launch { repository.deleteCategory(group) }
-            },
-        )
-    }
-    creatingIn?.let { group ->
-        CategoryEditorDialog(
-            initial = null,
-            defaultGroup = group,
-            groups = catalog.groups,
-            onDismiss = { creatingIn = null },
-            onSave = { label, emoji, parent ->
-                creatingIn = null
-                scope.launch { repository.saveCategory(Category.custom(label, emoji, parent)) }
-            },
-        )
-    }
+
     editing?.let { category ->
-        CategoryEditorDialog(
-            initial = category,
-            defaultGroup = catalog.groupOf(category),
-            groups = catalog.groups,
+        EditCategoryDialog(
+            category = category,
+            others = catalog.mine.filter { it.id != category.id },
+            payments = counts[category.id] ?: 0,
             onDismiss = { editing = null },
-            onSave = { label, emoji, parent ->
+            onSave = { label, emoji ->
                 editing = null
-                scope.launch {
-                    repository.saveCategory(
-                        category.copy(
-                            label = label.trim(),
-                            emoji = emoji.trim().ifEmpty { "🏷️" },
-                            parentId = parent.id,
-                            kind = parent.kind,
-                            countsAsSpend = parent.kind == Kind.SPENDING,
-                        ),
-                    )
-                }
+                scope.launch { repository.saveCategory(category.copy(label = label, emoji = emoji)) }
+            },
+            onMerge = { into ->
+                editing = null
+                scope.launch { repository.mergeCategory(category, into) }
             },
             onDelete = {
                 editing = null
@@ -182,23 +145,62 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     }
 }
 
-/** A category menu grouped under group headings; [onPick] gets the chosen subcategory. */
+@Composable
+private fun EditCategoryDialog(
+    category: Category,
+    others: List<Category>,
+    payments: Int,
+    onDismiss: () -> Unit,
+    onSave: (label: String, emoji: String) -> Unit,
+    onMerge: (Category) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var label by remember { mutableStateOf(category.label) }
+    var emoji by remember { mutableStateOf(category.emoji) }
+    var mergeMenu by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit category") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(emoji, { emoji = it.take(4) }, label = { Text("Emoji") }, singleLine = true, modifier = Modifier.width(84.dp))
+                    OutlinedTextField(label, { label = it.take(30) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.weight(1f))
+                }
+                if (others.isNotEmpty()) {
+                    Box {
+                        OutlinedButton(onClick = { mergeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Merge into another category ▾") }
+                        DropdownMenu(expanded = mergeMenu, onDismissRequest = { mergeMenu = false }) {
+                            others.forEach { other ->
+                                DropdownMenuItem(text = { Text("${other.emoji}  ${other.label}") }, onClick = {
+                                    mergeMenu = false
+                                    onMerge(other)
+                                })
+                            }
+                        }
+                    }
+                }
+                if (confirmDelete) {
+                    Text("Delete ${category.label}? Its $payments payments go back to Uncategorised.", color = Rust)
+                    Row {
+                        TextButton(onClick = onDelete) { Text("Yes, delete", color = Rust) }
+                        TextButton(onClick = { confirmDelete = false }) { Text("Keep it") }
+                    }
+                } else {
+                    TextButton(onClick = { confirmDelete = true }) { Text("Delete category", color = Rust) }
+                }
+            }
+        },
+        confirmButton = { TextButton(enabled = label.isNotBlank(), onClick = { onSave(label.trim(), emoji.trim().ifEmpty { "🏷️" }) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 @Composable
 fun CategoryMenuItems(catalog: CategoryCatalog, filter: (Category) -> Boolean = { true }, onPick: (Category) -> Unit) {
-    catalog.groups.forEach { group ->
-        val children = catalog.childrenOf(group).filter(filter)
-        if (children.isEmpty()) return@forEach
-        DropdownMenuItem(
-            text = { Text("${group.emoji}  ${group.label}", fontWeight = FontWeight.Bold, color = Faint) },
-            onClick = {},
-            enabled = false,
-        )
-        children.forEach { option ->
-            DropdownMenuItem(
-                text = { Text("${option.emoji}  ${option.label}", Modifier.padding(start = 20.dp)) },
-                onClick = { onPick(option) },
-            )
-        }
+    (catalog.mine.filter(filter) + Category.OTHER).forEach { option ->
+        DropdownMenuItem(text = { Text("${option.emoji}  ${option.label}") }, onClick = { onPick(option) })
     }
 }
 

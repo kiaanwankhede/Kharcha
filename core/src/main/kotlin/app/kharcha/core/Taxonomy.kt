@@ -144,6 +144,8 @@ data class Category(
         val DEPOSITS = sub(G_INVEST, "invest.deposits", "FD & RD", "🏦")
         val RETIREMENT = sub(G_INVEST, "invest.retirement", "PPF, NPS & EPF", "🧓")
         val GOLD = sub(G_INVEST, "invest.gold", "Gold & silver", "🪙")
+        /** One choice for any saving or investing, so it is never counted as spending. */
+        val SAVINGS = sub(G_INVEST, "invest.all", "Savings & investments", "📈")
 
         val TRANSFER = sub(G_TRANSFERS, "move.own", "Own accounts", "🔄")
         val CARD_BILL = sub(G_TRANSFERS, "move.cardbill", "Credit card bill payment", "💳")
@@ -191,9 +193,20 @@ data class Category(
             PUJA, FESTIVALS, CHARITY, WEDDINGS,
             EMI, CARD_CHARGES, BANK_FEES, TAXES, INSURANCE,
             OTHER,
-            MUTUAL_FUNDS, STOCKS, DEPOSITS, RETIREMENT, GOLD,
+            MUTUAL_FUNDS, STOCKS, DEPOSITS, RETIREMENT, GOLD, SAVINGS,
             TRANSFER, CARD_BILL, WALLET, CASH,
             SALARY, REFUNDS, INTEREST, RECEIVED, BORROWED, PAID_BACK, REIMBURSED, INCOME,
+        )
+
+        /**
+         * The only built-in choices left: money that isn't spending. The app needs these to avoid
+         * counting things twice (ATM cash, wallet top-ups, own transfers, card bills) and for lending.
+         * Every spending category is the user's own.
+         */
+        val SYSTEM: List<Category> = listOf(
+            TRANSFER, CARD_BILL, CASH, WALLET, SAVINGS,
+            LENT, REPAYING, BORROWED, PAID_BACK, REIMBURSED,
+            SALARY, REFUNDS, INTEREST, RECEIVED, INCOME,
         )
 
         /** Summary-only rows; never picked by hand. */
@@ -231,6 +244,17 @@ data class Category(
 
         const val CUSTOM_GROUP_PREFIX = "customg_"
 
+        /** A category the user made while reviewing: flat, no group, counts as spending. */
+        fun mine(label: String, emoji: String): Category = Category(
+            id = "mine_" + java.util.UUID.randomUUID().toString().replace("-", "").take(12),
+            label = label.trim(),
+            emoji = emoji.trim().ifEmpty { "🏷️" },
+            countsAsSpend = true,
+            builtIn = false,
+            parentId = null,
+            kind = Kind.SPENDING,
+        )
+
         fun custom(label: String, emoji: String, parent: Category): Category {
             val group = if (parent.isGroup) parent else groupOf(parent)
             return Category(
@@ -247,37 +271,37 @@ data class Category(
 }
 
 /**
- * All categories the user can pick from: the built-in ones plus their own groups and subcategories.
- * [custom] may hold both; groups are recognised by having no parent.
+ * The categories in use: the user's own (a flat list, no groups) plus the few built-in "not spending"
+ * ones in [Category.SYSTEM]. Each category is its own group, so totals and budgets work per category.
+ *
+ * Payments still filed under one of the old built-in spending categories read as Uncategorised, with
+ * the old name kept as a [hintFor] so it can be suggested or turned into a category of the user's own.
  */
 class CategoryCatalog(custom: List<Category> = emptyList()) {
-    private val customGroups = custom.filter { it.parentId == null && it.id.startsWith(Category.CUSTOM_GROUP_PREFIX) }
+    /** The user's own categories, including any made before categories went flat. */
+    val mine: List<Category> = custom.map { it.copy(parentId = null) }.sortedBy { it.label.lowercase() }
 
-    /** Built-in spending groups, then the user's groups, then Other and the non-spending groups. */
-    val groups: List<Category> = run {
-        val spending = Category.GROUPS.filter { it.kind == Kind.SPENDING && it.id != Category.G_OTHER.id }
-        val rest = Category.GROUPS.filter { it.kind != Kind.SPENDING || it.id == Category.G_OTHER.id }
-        spending + customGroups + rest
-    }
-    private val groupsById = groups.associateBy { it.id }
+    /** Every pickable category: the user's, then the built-in non-spending ones. */
+    val all: List<Category> = mine + Category.SYSTEM
 
-    private val customLeaves = custom.filterNot { it in customGroups }.map { leaf ->
-        val group = groupsById[leaf.parentId] ?: Category.G_OTHER
-        leaf.copy(parentId = group.id, kind = group.kind, countsAsSpend = group.kind == Kind.SPENDING)
-    }
+    /** Kept for screens that list groups; with a flat list every category is a group. */
+    val groups: List<Category> get() = all
 
-    /** Every pickable subcategory. */
-    val all: List<Category> = Category.BUILT_IN + customLeaves
+    // Old non-spending ids (SIPs, FDs...) stay meaningful so old payments keep counting correctly.
+    private val known: Map<String, Category> =
+        (Category.BUILT_IN.filter { it.kind != Kind.SPENDING } + Category.SYSTEM + Category.SYNTHETIC + Category.OTHER + mine)
+            .associateBy { it.id }
 
-    private val byId = (all + Category.SYNTHETIC + groups).associateBy { it.id }
+    fun childrenOf(group: Category): List<Category> = if (known.containsKey(group.id)) listOf(group) else emptyList()
 
-    /** Subcategories of [group], built-in first, then the user's own. */
-    fun childrenOf(group: Category): List<Category> = all.filter { it.parentId == group.id }
+    fun groupOf(category: Category): Category = category
 
-    /** The group a category belongs to, including the user's own groups. */
-    fun groupOf(category: Category): Category =
-        if (category.isGroup) category else groupsById[category.parentId] ?: Category.groupOf(category)
+    fun isKnown(id: String): Boolean = known.containsKey(id)
 
-    /** Unknown ids (for example a deleted custom category) fall back to Uncategorised; old ids are translated. */
-    fun byId(id: String): Category = byId[id] ?: Category.LEGACY_IDS[id] ?: Category.OTHER
+    /** Unknown ids (an old built-in spending category, a deleted category) read as Uncategorised. */
+    fun byId(id: String): Category = known[id] ?: Category.LEGACY_IDS[id]?.let { known[it.id] } ?: Category.OTHER
+
+    /** The old built-in name behind an id this catalog no longer knows, like "Food delivery". */
+    fun hintFor(id: String): String? =
+        if (known.containsKey(id)) null else (Category.BUILT_IN.firstOrNull { it.id == id } ?: Category.LEGACY_IDS[id])?.label
 }

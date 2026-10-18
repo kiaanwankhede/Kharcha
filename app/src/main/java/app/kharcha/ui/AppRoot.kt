@@ -160,7 +160,7 @@ private fun MainScreen(
     val reviewed = remember(all) { all.filter { it.status == app.kharcha.core.ReviewStatus.REVIEWED } }
     val pending = remember(all) { all.filter { it.status == app.kharcha.core.ReviewStatus.PENDING } }
     val ignored = remember(all) { all.filter { it.status == app.kharcha.core.ReviewStatus.IGNORED } }
-    val usage = remember(reviewed) { mostUsedCategories(reviewed) }
+    val usage = remember(reviewed, catalog) { mostUsedCategories(reviewed, catalog) }
     val byId = remember(all) { all.associateBy { it.id } }
     val unread by repository.unread.collectAsStateWithLifecycle(initialValue = emptyList())
     val budgetList by repository.budgets.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -293,6 +293,7 @@ private fun MainScreen(
         AddCashDialog(
             catalog = catalog,
             onDismiss = { addingCash = false },
+            onCreateCategory = { label, emoji -> repository.saveCategory(Category.mine(label, emoji)) },
             onSave = { amountPaise, whatFor, category, timestampMillis ->
                 addingCash = false
                 scope.launch { repository.addCash(amountPaise, whatFor, category, timestampMillis) }
@@ -301,15 +302,11 @@ private fun MainScreen(
     }
 }
 
-/** The categories the user picks most, for one-tap choices when reviewing. */
-private fun mostUsedCategories(reviewed: List<Transaction>): List<Category> =
-    reviewed.asSequence()
-        .filter { it.category.countsAsSpend }
-        .groupingBy { it.category }
+/** The user's categories they pick most, for one-tap choices when reviewing; their newest ones until there's history. */
+private fun mostUsedCategories(reviewed: List<Transaction>, catalog: CategoryCatalog): List<Category> {
+    val counts = reviewed.asSequence()
+        .filter { catalog.mine.any { c -> c.id == it.category.id } }
+        .groupingBy { it.category.id }
         .eachCount()
-        .entries
-        .sortedByDescending { it.value }
-        .map { it.key }
-        .take(5)
-        .toList()
-        .ifEmpty { listOf(Category.FOOD_DELIVERY, Category.QUICK_COMMERCE, Category.CABS, Category.RESTAURANTS, Category.ONLINE_SHOPPING) }
+    return catalog.mine.sortedByDescending { counts[it.id] ?: 0 }.take(5)
+}

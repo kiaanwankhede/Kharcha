@@ -90,7 +90,10 @@ class ClassifierTest {
         assertEquals(Category.FOOD_DELIVERY, Classifier.recategorise(old, "FOOD").category)
         assertEquals(Category.RESTAURANTS, Classifier.recategorise(old.copy(merchant = "Hotel Annapurna", vpa = null), "FOOD").category)
         assertEquals(Category.CASH, Classifier.recategorise(old, "CASH").category)
-        assertEquals(Category.RESTAURANTS, CategoryCatalog().byId("FOOD"))
+        // Built-in spending categories are gone: old ids read as Uncategorised, with the old name as a hint.
+        assertEquals(Category.OTHER, CategoryCatalog().byId("FOOD"))
+        assertEquals("Restaurants", CategoryCatalog().hintFor("FOOD"))
+        assertEquals(Category.CASH, CategoryCatalog().byId("CASH"))
     }
 
     @Test

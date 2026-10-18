@@ -101,7 +101,7 @@ fun BudgetRow(status: BudgetStatus, onClick: (() -> Unit)? = null) {
     }
 }
 
-/** Monthly limits on a group, a subcategory or a merchant. */
+/** Monthly limits on a category or a merchant. */
 @Composable
 fun BudgetsScreen(container: AppContainer, onBack: () -> Unit) {
     val repository = container.repository
@@ -185,7 +185,7 @@ private fun BudgetDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(BudgetKind.GROUP to "Group", BudgetKind.CATEGORY to "Subcategory", BudgetKind.MERCHANT to "Merchant").forEach { (value, name) ->
+                    listOf(BudgetKind.CATEGORY to "Category", BudgetKind.MERCHANT to "Merchant").forEach { (value, name) ->
                         if (kind == value) {
                             Button(onClick = {}) { Text(name) }
                         } else {

@@ -48,7 +48,8 @@ class TrustTest {
         assertTrue(s.byCategory.none { it.category == Category.ONLINE_SHOPPING })
 
         val stored = SplitCodec.encode(amazon.splits)
-        assertEquals(amazon.splits, SplitCodec.decode(stored, CategoryCatalog()::byId))
+        val byId = Category.BUILT_IN.associateBy { it.id }
+        assertEquals(amazon.splits, SplitCodec.decode(stored) { byId.getValue(it) })
         assertEquals(emptyList<SplitPart>(), SplitCodec.decode(null, CategoryCatalog()::byId))
     }
 

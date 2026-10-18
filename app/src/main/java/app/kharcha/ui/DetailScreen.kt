@@ -108,7 +108,7 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
                     TextButton(onClick = { menuOpen = true }) {
                         Column(horizontalAlignment = Alignment.End) {
                             Text("${txn.category.emoji} ${txn.category.label}  ▾", fontWeight = FontWeight.Bold)
-                            Text(catalog.groupOf(txn.category).label, style = MaterialTheme.typography.bodySmall, color = Faint)
+                            txn.hint?.let { Text("Looks like $it", style = MaterialTheme.typography.bodySmall, color = Faint) }
                         }
                     }
                 }
@@ -205,16 +205,13 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
             CategoryPickerSheet(
                 catalog = catalog,
                 selected = txn.category,
-                suggestions = Merchants.brandOf(txn)?.choices.orEmpty(),
+                hints = (listOfNotNull(txn.hint) + Merchants.brandOf(txn)?.choices.orEmpty().map { it.label }).distinct(),
+                onCreate = { label, emoji -> repository.saveCategory(Category.mine(label, emoji)) },
                 onPick = { category ->
                     menuOpen = false
                     scope.launch { repository.setCategory(txn.id, category, rememberForMerchant) }
                 },
                 onDismiss = { menuOpen = false },
-                onCreateNew = {
-                    menuOpen = false
-                    creatingCategory = true
-                },
             )
         }
         if (renaming) {

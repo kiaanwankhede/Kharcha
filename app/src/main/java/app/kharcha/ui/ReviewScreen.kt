@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import app.kharcha.AppContainer
 import app.kharcha.core.Category
 import app.kharcha.core.CategoryCatalog
+import app.kharcha.core.CategoryMatch
 import app.kharcha.core.Direction
 import app.kharcha.core.Kind
 import app.kharcha.core.Merchants
@@ -273,12 +274,7 @@ private fun PaymentsReview(
                             onUndoable("Not money: hidden this$extra. Messages like it will be hidden from now on.") { repository.undoNotMoney(result) }
                         }
                     },
-                    onCreateCategory = { label, emoji, parent, remember, note ->
-                        scope.launch {
-                            val created = repository.saveCategory(Category.custom(label, emoji, parent))
-                            repository.review(t.id, created, remember, note)
-                        }
-                    },
+                    createCategory = { label, emoji -> repository.saveCategory(Category.mine(label, emoji)) },
                 )
             }
         }
@@ -364,7 +360,7 @@ private fun ReviewCard(
     onConfirmDuplicate: () -> Unit,
     onNotDuplicate: () -> Unit,
     onNotMoney: () -> Unit,
-    onCreateCategory: (label: String, emoji: String, parent: Category, remember: Boolean, note: String?) -> Unit,
+    createCategory: suspend (label: String, emoji: String) -> Category,
 ) {
     val brand = remember(t.id) { Merchants.brandOf(t) }
     val multiBusiness = brand?.isMultiBusiness == true
@@ -393,11 +389,15 @@ private fun ReviewCard(
         },
         positionalThreshold = { distance -> distance * 0.35f },
     )
-    var creating by remember(t.id) { mutableStateOf(false) }
-    val chips = remember(t.id, quickPicks) {
-        val choices = brand?.choices.orEmpty()
-        (listOf(t.category) + choices + quickPicks + Category.WALLET).distinctBy { it.id }.take(maxOf(7, choices.size + 2))
+    var creating by remember(t.id) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    // What the app thinks this is ("Food delivery", or each thing a store like Swiggy sells).
+    val hints = remember(t.id) { (listOfNotNull(t.hint) + brand?.choices.orEmpty().map { it.label }).distinct() }
+    val chips = remember(t.id, quickPicks, catalog) {
+        val fromHints = hints.mapNotNull { CategoryMatch.best(it, catalog.mine) }
+        (listOf(t.category).filter { it.id != Category.OTHER.id } + fromHints + quickPicks).distinctBy { it.id }.take(6)
     }
+    val ideas = remember(t.id, catalog) { hints.filter { CategoryMatch.best(it, catalog.mine) == null }.take(2) }
     val time = Instant.ofEpochMilli(t.timestampMillis).atZone(Zone).format(timeFormat)
     val via = listOfNotNull(t.bank, t.accountLast4?.let { "··$it" }).joinToString(" ").ifEmpty {
         if (t.source.name == "NOTIFICATION") "UPI app" else "Bank SMS"
@@ -478,7 +478,7 @@ private fun ReviewCard(
         }
         if (t.direction == Direction.CREDIT) {
             Text(
-                "Money in. File it under a spending category (e.g. Food delivery) if it’s a refund: it will lower that category instead of counting as income.",
+                "Money in. If it’s a refund, file it under the category it came back from: it will lower that category instead of counting as income.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Blue,
             )
@@ -515,12 +515,13 @@ private fun ReviewCard(
             chips.forEach { option ->
                 CategoryChip(option, selected = option.id == category.id) { category = option }
             }
-            CategoryChip(label = "More… 🔍", selected = chips.none { it.id == category.id }) { sheetOpen = true }
+            ideas.forEach { idea -> IdeaChip(idea) { creating = idea } }
+            CategoryChip(label = "Type… 🔍", selected = false) { sheetOpen = true }
         }
         Text(
-            "${catalog.groupOf(category).emoji} ${catalog.groupOf(category).label} › ${category.emoji} ${category.label}",
+            if (category.id == Category.OTHER.id) "Uncategorised: pick one of yours or type a new one" else "${category.emoji} ${category.label}",
             style = MaterialTheme.typography.bodySmall,
-            color = Muted,
+            color = if (category.id == Category.OTHER.id) Rust else Muted,
         )
         when (category.kind) {
             Kind.SAVING -> Text("Saving & investing: shown as saved, not spent.", style = MaterialTheme.typography.bodySmall, color = Blue)
@@ -574,27 +575,28 @@ private fun ReviewCard(
             catalog = catalog,
             selected = category,
             suggestions = chips,
+            hints = hints,
             onPick = {
                 category = it
                 sheetOpen = false
             },
             onDismiss = { sheetOpen = false },
-            onCreateNew = {
-                sheetOpen = false
-                creating = true
-            },
+            onCreate = createCategory,
         )
     }
 
-    if (creating) {
-        CategoryEditorDialog(
-            initial = null,
-            onDismiss = { creating = false },
-            defaultGroup = catalog.groupOf(category),
-            groups = catalog.groups,
-            onSave = { label, emoji, parent ->
-                creating = false
-                onCreateCategory(label, emoji, parent, rememberForMerchant, note.takeIf { it.isNotBlank() })
+    creating?.let { name ->
+        CreateCategoryDialog(
+            name = name,
+            similar = CategoryMatch.find(name, catalog.mine).close,
+            onUseExisting = {
+                creating = null
+                category = it
+            },
+            onDismiss = { creating = null },
+            onCreate = { label, emoji ->
+                creating = null
+                scope.launch { category = createCategory(label, emoji) }
             },
         )
     }

@@ -36,6 +36,7 @@ fun AddCashDialog(
     catalog: CategoryCatalog,
     onDismiss: () -> Unit,
     onSave: (amountPaise: Long, whatFor: String, category: Category, timestampMillis: Long) -> Unit,
+    onCreateCategory: (suspend (label: String, emoji: String) -> Category)? = null,
 ) {
     var amount by remember { mutableStateOf("") }
     var whatFor by remember { mutableStateOf("") }
@@ -96,6 +97,8 @@ fun AddCashDialog(
             catalog = catalog,
             selected = category,
             filter = { it.countsAsSpend },
+            hints = listOf(whatFor).filter { it.isNotBlank() },
+            onCreate = onCreateCategory,
             onPick = {
                 category = it
                 menuOpen = false
