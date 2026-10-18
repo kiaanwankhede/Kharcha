@@ -30,6 +30,11 @@ class MessageRulesTest {
     @Test
     fun `OTPs are recognised so they are never stored`() {
         assertTrue(SmsParser.isOtp("123456 is your OTP for txn of Rs.450"))
+        assertTrue(SmsParser.isOtp("Your Swiggy verification code is 4821. Do not share it."))
+        assertTrue(SmsParser.isOtp("Use code 993011 to log in to Amazon"))
+        // A payment message that only warns about OTPs has no code, so it is kept.
+        assertFalse(SmsParser.isOtp("Rs.450.00 debited from A/c XX1234 on 16-10-26 to SWIGGY. Never share your OTP or PIN. -HDFC"))
+        assertFalse(SmsParser.isOtp("Hi, are we meeting at 7?"))
         assertFalse(SmsParser.isOtp(promo))
     }
 

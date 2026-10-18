@@ -37,6 +37,11 @@ class Prefs(context: Context) {
         get() = prefs.getString("last_backup_error", null)
         set(value) = prefs.edit { putString("last_backup_error", value) }
 
+    /** Set once the whole inbox (not just bank messages) has been read into the message list. */
+    var allMessagesLoaded: Boolean
+        get() = prefs.getBoolean("all_messages_loaded", false)
+        set(value) = prefs.edit { putBoolean("all_messages_loaded", value) }
+
     var tagsMigrated: Boolean
         get() = prefs.getBoolean("tags_migrated", false)
         set(value) = prefs.edit { putBoolean("tags_migrated", value) }

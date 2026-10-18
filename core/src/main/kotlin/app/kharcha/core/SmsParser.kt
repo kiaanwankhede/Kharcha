@@ -164,10 +164,17 @@ object SmsParser {
         )
     }
 
-    private val OTP = Regex("""\botp\b|one.time.password|verification code|\bcvv\b|\bmpin\b""", RegexOption.IGNORE_CASE)
+    private val OTP_WORDS = Regex(
+        """\botp\b|one.time.password|verification code|security code|login code|auth\w* code|confirmation code|\bcode\b|\bpin\b|\bcvv\b|\bmpin\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val CODE = Regex("""(?<![\w,.*])\d{4,8}(?![\d,]|\.\d)""")
 
-    /** OTPs and codes are never stored or shown, not even in the message list. */
-    fun isOtp(body: String): Boolean = OTP.containsMatchIn(body)
+    /**
+     * A one-time code: code words plus a 4–8 digit number. These are never stored or shown. A bank
+     * payment message that only warns "never share your OTP" has no code and is kept.
+     */
+    fun isOtp(body: String): Boolean = OTP_WORDS.containsMatchIn(body) && CODE.containsMatchIn(body)
 
     /** "AX-HDFCBK-S" -> "HDFCBK"; null for phone numbers. */
     fun senderCodeOf(sender: String): String? = senderCode(sender)

@@ -198,6 +198,7 @@ private fun Backfill(container: AppContainer, onDone: () -> Unit) {
     LaunchedEffect(Unit) {
         if (!finished) {
             container.scanner.scan { progress = it }
+            container.prefs.allMessagesLoaded = true
             finished = true
         }
     }

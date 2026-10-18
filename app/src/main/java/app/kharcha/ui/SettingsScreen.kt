@@ -266,6 +266,7 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
                     scope.launch {
                         scanStatus = "Scanning…"
                         val result = container.scanner.scan { scanStatus = "Scanning… ${it.checked} of ${it.total}" }
+                        container.prefs.allMessagesLoaded = true
                         scanStatus = "Done. ${result.found} new transactions found."
                     }
                 },

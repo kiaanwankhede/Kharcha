@@ -16,6 +16,8 @@ object WhatsNew {
     const val RELEASES_URL = "https://github.com/kiaanwankhede/Kharcha/releases/latest"
 
     val ITEMS = listOf(
+        "📨 Review → All messages lists every message from your inbox (never one-time codes), so you can mark what isn't a payment.",
+        "👆 No more swiping on review cards: use the buttons.",
         "🏷️ Tags instead of categories: give a payment as many as you like. Type one: if you have it, it's used; if it's close, it's suggested; if it's new, you're asked first. The first tag counts in your totals; every tag has its own total.",
         "📱 Home-screen widget: swipe through review, safe to spend, today, month, budgets and bills. Accept payments right from it.",
         "＋ Add cash from Quick Settings: pull down, tap, type.",

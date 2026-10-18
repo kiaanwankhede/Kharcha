@@ -14,9 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import app.kharcha.core.Confidence
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.horizontalScroll
@@ -90,7 +87,7 @@ fun ReviewScreen(
             Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listOf(false to "Payments (${pending.size})", true to "All bank messages").forEach { (value, label) ->
+            listOf(false to "Payments (${pending.size})", true to "All messages").forEach { (value, label) ->
                 if (showMessages == value) {
                     Button(onClick = {}) { Text(label) }
                 } else {
@@ -382,22 +379,6 @@ private fun ReviewCard(
     // Sure payments start folded to one line; guesses and possible duplicates open, so you look at them.
     var expanded by remember(t.id) { mutableStateOf(t.confidence == Confidence.GUESS || twin != null) }
     val accept = { onReview(type, tags, rememberForMerchant, note.takeIf { it.isNotBlank() }) }
-    val swipe = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    accept()
-                    true
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onIgnore()
-                    true
-                }
-                SwipeToDismissBoxValue.Settled -> false
-            }
-        },
-        positionalThreshold = { distance -> distance * 0.35f },
-    )
     var creating by remember(t.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     // What the app thinks this is ("Food delivery", or each thing a store like Swiggy sells).
@@ -412,26 +393,6 @@ private fun ReviewCard(
         if (t.source.name == "NOTIFICATION") "UPI app" else "Bank SMS"
     }
 
-    SwipeToDismissBox(
-        state = swipe,
-        backgroundContent = {
-            val toRight = swipe.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(if (toRight) ChartStrong else Sand)
-                    .padding(horizontal = 24.dp),
-                contentAlignment = if (toRight) Alignment.CenterStart else Alignment.CenterEnd,
-            ) {
-                Text(
-                    if (toRight) "✓ $summary" else "Ignore",
-                    color = if (toRight) Paper else Muted,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        },
-    ) {
     Panel(Modifier.clickable { expanded = !expanded }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             EmojiBadge(if (t.isSplit) "✂️" else category.emoji, size = 40)
@@ -579,9 +540,7 @@ private fun ReviewCard(
             }
         }
         TextButton(onClick = onNotMoney) { Text("Not money — hide messages like this", color = Faint) }
-        Text("Tip: swipe right to accept, left to ignore", style = MaterialTheme.typography.bodySmall, color = Faint)
         }
-    }
     }
 
     if (sheetOpen) {

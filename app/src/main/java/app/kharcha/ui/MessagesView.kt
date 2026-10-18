@@ -46,7 +46,7 @@ private enum class MessageFilter(val label: String, val states: Set<String>?) {
     ALL("All", null),
     PAYMENTS("Payments", setOf(MessageState.PAYMENT, MessageState.ADDED, MessageState.BILL)),
     UNREAD("Couldn’t read", setOf(MessageState.UNREAD)),
-    SKIPPED("Skipped", setOf(MessageState.SKIPPED)),
+    SKIPPED("Other", setOf(MessageState.SKIPPED)),
     HIDDEN("Not money", setOf(MessageState.NOT_MONEY, MessageState.HIDDEN)),
 }
 
@@ -56,14 +56,14 @@ private fun stateLabel(state: String): Pair<String, Color> = when (state) {
     MessageState.ADDED -> "Added by you" to Blue
     MessageState.BILL -> "Card bill" to Blue
     MessageState.UNREAD -> "Couldn’t read" to Rust
-    MessageState.SKIPPED -> "Skipped (offer, request or failed)" to Faint
+    MessageState.SKIPPED -> "Not read as a payment" to Faint
     MessageState.NOT_MONEY -> "Not money — you said" to Faint
     MessageState.HIDDEN -> "Hidden by a pattern you taught" to Faint
     else -> state to Faint
 }
 
 /**
- * Every bank message the app has seen, with what it did. Marking one "not money" teaches a pattern:
+ * Every message the app has seen (one-time codes never kept), with what it did. Marking one "not money" teaches a pattern:
  * similar messages are hidden from then on (and the ones already here, with undo).
  */
 @Composable
@@ -149,12 +149,12 @@ fun MessagesView(
                 }
             }
         }
-        if (messages.isEmpty()) {
+        if (messages.isEmpty() || !container.prefs.allMessagesLoaded) {
             item {
                 Panel(color = CoolTint) {
-                    Text("Load your bank messages", fontWeight = FontWeight.Bold)
+                    Text(if (messages.isEmpty()) "Load your messages" else "Load the rest of your inbox", fontWeight = FontWeight.Bold)
                     Text(
-                        "New messages are listed here as they arrive. To see the ones already in your inbox, read the last 6 months once.",
+                        "Every message is listed here (never one-time codes), so you can mark what isn't a payment. New ones appear as they arrive; read the last 6 months once to see the ones already in your inbox.",
                         color = Muted,
                     )
                     Button(
@@ -166,6 +166,7 @@ fun MessagesView(
                                 scanning = true
                                 scope.launch {
                                     container.scanner.scan { scan = it }
+                                    container.prefs.allMessagesLoaded = true
                                     scanning = false
                                 }
                             }

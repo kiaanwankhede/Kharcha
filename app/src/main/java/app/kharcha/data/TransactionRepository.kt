@@ -83,7 +83,7 @@ class TransactionRepository(
 
     val unread: Flow<List<UnreadMessageEntity>> = unreadMessages.observeOpen()
 
-    /** Every bank message (newest first) with what happened to it. */
+    /** Every message (newest first, one-time codes left out) with what happened to it. */
     val messages: Flow<List<UnreadMessageEntity>> = unreadMessages.observeAll()
 
     val learnedRules: Flow<List<MessageRule>> = messageRules.observeAll().map { list -> list.map { it.toCore() } }
@@ -92,12 +92,13 @@ class TransactionRepository(
     data class Captured(val newTransaction: Transaction?, val parsed: ParsedTransaction?)
 
     /**
-     * The single path for every incoming or scanned SMS. Personal messages and OTPs are dropped; bank
-     * messages are kept with what happened to them: a payment, a card bill, unreadable, skipped, or
-     * hidden by a pattern the user taught.
+     * The single path for every incoming or scanned SMS. Every message is kept (except one-time codes)
+     * with what happened to it: a payment, a card bill, unreadable, not a payment, or hidden by a
+     * pattern the user taught. Only bank senders are read for payments.
      */
     suspend fun capture(sender: String, body: String, receivedAt: Long): Captured {
-        if (!SmsParser.isLikelyBankSender(sender) || SmsParser.isOtp(body)) return Captured(null, null)
+        val earlyReading = SmsParser.inspect(sender, body, receivedAt)
+        if (earlyReading !is SmsParser.Reading.Read && SmsParser.isOtp(body)) return Captured(null, null)
         fun record(state: String, amount: Long? = null, transactionId: Long? = null) = UnreadMessageEntity(
             sender = sender, body = body, receivedAt = receivedAt, amountPaise = amount, dismissed = false,
             state = state, transactionId = transactionId,
@@ -107,7 +108,7 @@ class TransactionRepository(
             unreadMessages.insert(record(MessageState.BILL, bill.totalDuePaise))
             return Captured(null, null)
         }
-        val reading = SmsParser.inspect(sender, body, receivedAt)
+        val reading = earlyReading
         val rules = messageRules.getAll().map { it.toCore() }
         if (rules.any { MessageRules.matches(it, sender, body, paymentLike = reading is SmsParser.Reading.Read) }) {
             unreadMessages.insert(record(MessageState.HIDDEN))

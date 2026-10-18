@@ -2,7 +2,6 @@ package app.kharcha.capture
 
 import android.content.Context
 import android.provider.Telephony
-import app.kharcha.core.SmsParser
 import app.kharcha.data.TransactionRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,13 +33,12 @@ class InboxScanner(private val context: Context, private val repository: Transac
             while (it.moveToNext()) {
                 checked++
                 val sender = it.getString(addressIndex).orEmpty()
-                if (SmsParser.isLikelyBankSender(sender)) {
-                    val body = it.getString(bodyIndex).orEmpty()
-                    val receivedAt = it.getLong(dateIndex)
-                    val captured = repository.capture(sender, body, receivedAt)
-                    if (captured.newTransaction != null) found++
-                    captured.parsed?.let { parsed -> parsed.accountLast4?.let { last4 -> accounts += (parsed.bank.orEmpty() + last4) } }
-                }
+                // Every message goes in (so you can mark what isn't a payment); only bank ones become payments.
+                val body = it.getString(bodyIndex).orEmpty()
+                val receivedAt = it.getLong(dateIndex)
+                val captured = repository.capture(sender, body, receivedAt)
+                if (captured.newTransaction != null) found++
+                captured.parsed?.let { parsed -> parsed.accountLast4?.let { last4 -> accounts += (parsed.bank.orEmpty() + last4) } }
                 if (checked % 50 == 0 || checked == total) {
                     onProgress(ScanProgress(checked, total, found, accounts.size))
                 }
