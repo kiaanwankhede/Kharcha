@@ -160,6 +160,25 @@ private fun PaymentsReview(
                 )
             }
         }
+        // A big backlog (often from the first inbox scan): offer to accept the old ones in one go.
+        val weekAgo = today.minusDays(6).atStartOfDay(Zone).toInstant().toEpochMilli()
+        val old = pending.filter { it.timestampMillis < weekAgo }
+        if (old.size >= 20) {
+            item {
+                Panel(color = CoolTint) {
+                    Text("${old.size} of these are more than a week old", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Accept them with the suggested categories and review just the last 7 days. You can still change any of them later.",
+                        color = Muted,
+                    )
+                    Button(onClick = {
+                        val ids = old.map { it.id }
+                        scope.launch { ids.forEach { repository.accept(it) } }
+                        onUndoable("Accepted ${ids.size} older payments") { ids.forEach { repository.sendBackToReview(it) } }
+                    }) { Text("Accept ${old.size} older payments") }
+                }
+            }
+        }
         if (unreadCount > 0) {
             item {
                 Panel(Modifier.clickable(onClick = onOpenUnread), color = WarmTint) {

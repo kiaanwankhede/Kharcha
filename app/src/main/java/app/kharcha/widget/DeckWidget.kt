@@ -35,9 +35,28 @@ import java.util.Locale
 
 /**
  * The home-screen deck: a stack of cards (review, safe to spend, today, month, budgets, upcoming)
- * that you swipe up and down. The launcher also flips it by itself every so often.
+ * shown one at a time. It flips to the next card by itself every few seconds; the › button flips it
+ * straight away.
  */
 class DeckWidgetProvider : AppWidgetProvider() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_NEXT) {
+            val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+            if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                AppWidgetManager.getInstance(context)
+                    .partiallyUpdateAppWidget(id, RemoteViews(context.packageName, R.layout.widget_deck).apply { showNext(R.id.deck) })
+            }
+            return
+        }
+        super.onReceive(context, intent)
+    }
+
+    // Taller or shorter widget: redraw so cards show more or fewer rows.
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, newOptions: android.os.Bundle) {
+        @Suppress("DEPRECATION")
+        manager.notifyAppWidgetViewDataChanged(id, R.id.deck)
+    }
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         ids.forEach { id ->
@@ -59,6 +78,17 @@ class DeckWidgetProvider : AppWidgetProvider() {
                     ),
                 )
                 setOnClickPendingIntent(
+                    R.id.deck_next,
+                    PendingIntent.getBroadcast(
+                        context,
+                        id,
+                        Intent(context, DeckWidgetProvider::class.java)
+                            .setAction(ACTION_NEXT)
+                            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    ),
+                )
+                setOnClickPendingIntent(
                     R.id.deck_empty,
                     PendingIntent.getActivity(context, 1, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE),
                 )
@@ -70,6 +100,8 @@ class DeckWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        private const val ACTION_NEXT = "app.kharcha.widget.NEXT_CARD"
+
         /** Redraws every deck on the home screen with the latest numbers. */
         fun refresh(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
@@ -81,14 +113,18 @@ class DeckWidgetProvider : AppWidgetProvider() {
 }
 
 class DeckWidgetService : RemoteViewsService() {
-    override fun onGetViewFactory(intent: Intent): RemoteViewsFactory = DeckFactory(applicationContext)
+    override fun onGetViewFactory(intent: Intent): RemoteViewsFactory =
+        DeckFactory(applicationContext, intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID))
 }
 
-private class DeckFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
+private class DeckFactory(private val context: Context, private val widgetId: Int) : RemoteViewsService.RemoteViewsFactory {
     private val zone = ZoneId.of("Asia/Kolkata")
     private var cards: List<DeckCard> = emptyList()
     private var today: LocalDate = LocalDate.now(zone)
     private var hideAmounts = false
+
+    /** True when the widget is tall enough (3+ rows) for a second payment, bill or third budget. */
+    private var roomy = false
 
     private fun money(paise: Long): String = if (hideAmounts) "₹ ••••" else Money.format(paise)
 
@@ -105,6 +141,8 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
         }
         today = LocalDate.now(zone)
         hideAmounts = container.prefs.widgetHidesAmounts
+        roomy = AppWidgetManager.getInstance(context).getAppWidgetOptions(widgetId)
+            .getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0) >= 170
         cards = runBlocking(Dispatchers.IO) {
             val repository = container.repository
             val catalog = repository.catalogNow()
@@ -167,7 +205,7 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
             Triple(R.id.review_row2, R.id.review_amount2, R.id.review_sub2) to R.id.review_accept2,
         )
         rows.forEachIndexed { i, (ids, accept) ->
-            val t = card.top.getOrNull(i)
+            val t = card.top.getOrNull(i)?.takeIf { i == 0 || roomy }
             setViewVisibility(ids.first, if (t == null) View.GONE else View.VISIBLE)
             if (t == null) return@forEachIndexed
             val amount = if (t.direction == Direction.CREDIT) "+${money(t.amountPaise)}" else money(t.amountPaise)
@@ -232,7 +270,7 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
             arrayOf(R.id.budget_row3, R.id.budget_label3, R.id.budget_amount3, R.id.budget_bar3, R.id.budget_bar_warn3),
         )
         rows.forEachIndexed { i, (row, label, amount, bar, warnBar) ->
-            val status = card.items.getOrNull(i)
+            val status = card.items.getOrNull(i)?.takeIf { i < 2 || roomy }
             setViewVisibility(row, if (status == null) View.GONE else View.VISIBLE)
             if (status == null) return@forEachIndexed
             val warn = status.level != BudgetLevel.OK
@@ -248,13 +286,13 @@ private class DeckFactory(private val context: Context) : RemoteViewsService.Rem
     }
 
     private fun upcoming(card: DeckCard.Upcoming) = views(R.layout.deck_card_upcoming, WidgetActionActivity.open(WidgetActionActivity.OPEN_UPCOMING)).apply {
-        setTextViewText(R.id.up_total, "30 days · ${money(card.totalPaise)}")
+        setTextViewText(R.id.up_total, "Upcoming · ${money(card.totalPaise)}")
         val rows = listOf(
             arrayOf(R.id.up_row1, R.id.up_label1, R.id.up_when1, R.id.up_amount1),
             arrayOf(R.id.up_row2, R.id.up_label2, R.id.up_when2, R.id.up_amount2),
         )
         rows.forEachIndexed { i, (row, label, whenId, amount) ->
-            val item = card.items.getOrNull(i)
+            val item = card.items.getOrNull(i)?.takeIf { i == 0 || roomy }
             setViewVisibility(row, if (item == null) View.GONE else View.VISIBLE)
             if (item == null) return@forEachIndexed
             val days = ChronoUnit.DAYS.between(today, item.date)

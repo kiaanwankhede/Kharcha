@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:autoAdvanceViewId="@id/deck"
     android:description="@string/deck_widget_description"
     android:initialLayout="@layout/widget_deck"
     android:minWidth="250dp"

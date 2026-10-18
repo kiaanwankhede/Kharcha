@@ -1,14 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The deck: a stack of cards you swipe up and down; the launcher also flips it by itself. -->
+<!--
+  The deck: one full-size card at a time. It flips to the next card every few seconds by itself;
+  the › button flips it straight away. (Android only allows swiping in a StackView, which shrinks
+  the card and shows the cards behind it, so this uses a flipper instead.)
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <StackView
+    <AdapterViewFlipper
         android:id="@+id/deck"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:loopViews="true" />
+        android:autoStart="true"
+        android:flipInterval="8000"
+        android:inAnimation="@animator/deck_in"
+        android:loopViews="true"
+        android:outAnimation="@animator/deck_out" />
 
     <TextView
         android:id="@+id/deck_empty"
@@ -20,4 +28,15 @@
         android:text="Open Kharcha to get started"
         android:textColor="@color/widget_text"
         android:textSize="15sp" />
+
+    <ImageView
+        android:id="@+id/deck_next"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="10dp"
+        android:background="@drawable/widget_next_bg"
+        android:contentDescription="Next card"
+        android:scaleType="center"
+        android:src="@drawable/ic_widget_next" />
 </FrameLayout>
