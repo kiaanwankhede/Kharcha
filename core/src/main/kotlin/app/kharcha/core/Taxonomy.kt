@@ -256,9 +256,10 @@ data class Category(
          * A tag as a category: payments count under their first (main) tag in totals. The id is the
          * cleaned name, so the same name is always the same tag.
          */
-        fun forTag(name: String, emoji: String = CategoryMatch.emojiFor(name)): Category {
+        fun forTag(name: String, @Suppress("UNUSED_PARAMETER") emoji: String = ""): Category {
             val clean = Tags.clean(name)
-            return Category(TAG_PREFIX + clean, clean, emoji.ifEmpty { "🏷️" }, countsAsSpend = true, builtIn = false, parentId = null, kind = Kind.SPENDING)
+            // Tags are plain words: no icon.
+            return Category(TAG_PREFIX + clean, clean, "", countsAsSpend = true, builtIn = false, parentId = null, kind = Kind.SPENDING)
         }
 
         /** A category the user made while reviewing: flat, no group, counts as spending. */
@@ -296,7 +297,7 @@ data class Category(
  */
 class CategoryCatalog(custom: List<Category> = emptyList()) {
     /** The user's own categories, including any made before categories went flat. */
-    val mine: List<Category> = custom.map { it.copy(parentId = null) }.sortedBy { it.label.lowercase() }
+    val mine: List<Category> = custom.map { c -> c.copy(parentId = null, emoji = if (c.isTag) "" else c.emoji) }.sortedBy { it.label.lowercase() }
 
     /** Every pickable category: the user's, then the built-in non-spending ones. */
     val all: List<Category> = mine + Category.SYSTEM

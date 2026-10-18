@@ -287,7 +287,7 @@ private class DeckFactory(private val context: Context, private val widgetId: In
             if (status == null) return@forEachIndexed
             val warn = status.level != BudgetLevel.OK
             val percent = (status.fraction * 100).toInt().coerceIn(0, 100)
-            setTextViewText(label, "${status.budget.emoji} ${status.budget.label}")
+            setTextViewText(label, "${status.budget.emoji} ${status.budget.label}".trim())
             setTextViewText(amount, "${short(status.spentPaise)} / ${short(status.budget.limitPaise).removePrefix("₹")}")
             setTextColor(amount, context.getColor(if (warn) R.color.widget_warn else R.color.widget_muted))
             setProgressBar(bar, 100, percent, false)

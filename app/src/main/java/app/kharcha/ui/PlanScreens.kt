@@ -85,7 +85,7 @@ fun BudgetRow(status: BudgetStatus, onClick: (() -> Unit)? = null) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("${b.emoji}  ${b.label}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text("${b.emoji}  ${b.label}".trim(), Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1)
             Text("${Money.format(status.spentPaise)} / ${Money.format(b.limitPaise)}", style = MaterialTheme.typography.bodySmall)
         }
         Bar(status.fraction, color = color)
@@ -206,7 +206,7 @@ private fun BudgetDialog(
                         if (kind == BudgetKind.GROUP) {
                             catalog.groups.filter { it.kind == Kind.SPENDING }.forEach { group ->
                                 DropdownMenuItem(
-                                    text = { Text("${group.emoji}  ${group.label}") },
+                                    text = { Text("${group.emoji}  ${group.label}".trim()) },
                                     onClick = {
                                         targetId = group.id
                                         label = group.label

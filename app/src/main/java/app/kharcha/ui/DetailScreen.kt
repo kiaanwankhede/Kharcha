@@ -92,7 +92,7 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
                 Text("Split across ${txn.splits.size} categories", fontWeight = FontWeight.Bold)
                 txn.splits.forEach { part ->
                     Row {
-                        Text("${part.category.emoji}  ${part.category.label}", Modifier.weight(1f))
+                        Text("${part.category.emoji}  ${part.category.label}".trim(), Modifier.weight(1f))
                         Text(Money.format(part.amountPaise, showPaise = part.amountPaise % 100 != 0L))
                     }
                 }
@@ -108,9 +108,9 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
             val typeLabel = txn.category.takeIf { !it.countsAsSpend }
             if (typeLabel != null || txn.tags.isNotEmpty()) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    typeLabel?.let { AssistChip(onClick = { menuOpen = true }, label = { Text("${it.emoji} ${it.label}") }) }
+                    typeLabel?.let { AssistChip(onClick = { menuOpen = true }, label = { Text("${it.emoji} ${it.label}".trim()) }) }
                     txn.tags.forEach { tag ->
-                        AssistChip(onClick = { scope.launch { repository.setTags(txn.id, txn.tags - tag) } }, label = { Text("${catalog.tag(tag).emoji} $tag  ✕") })
+                        AssistChip(onClick = { scope.launch { repository.setTags(txn.id, txn.tags - tag) } }, label = { Text("$tag  ✕") })
                     }
                 }
             } else {

@@ -150,42 +150,40 @@ class TransactionRepository(
         val similarCount: Int get() = (messages.size - 1).coerceAtLeast(0)
     }
 
-    /** How many other messages a "not money" on [id] would also hide (shown before a payment-covering rule is made). */
-    suspend fun previewNotMoney(id: Long): Int {
-        val message = unreadMessages.get(id) ?: return 0
-        val rule = MessageRules.create(message.sender, message.body, message.state == MessageState.PAYMENT, 0)
-        return candidatesFor(rule, exclude = id).size
-    }
+    /** "Not a payment" only ever affects the one message now, so nothing else would be hidden. */
+    suspend fun previewNotMoney(id: Long): Int = 0
 
     /**
-     * The user says a message isn't money: it is set aside, a pattern is learned from it, and similar
-     * messages (and their payments still waiting for review) are hidden too. Reviewed payments are never touched.
+     * The user says a message isn't a payment: that message alone is set aside (and its payment, if
+     * one was read from it and not yet reviewed). Nothing is learned and no other message changes.
      */
     suspend fun markNotMoney(id: Long): NotMoneyResult? {
         val message = unreadMessages.get(id) ?: return null
-        val rule = MessageRules.create(message.sender, message.body, coversPayments = message.state == MessageState.PAYMENT, nowMillis = System.currentTimeMillis())
-        val ruleId = messageRules.insert(rule.toEntity())
-        val changedMessages = mutableListOf(message.id to message.state)
         val changedTransactions = mutableListOf<Pair<Long, String>>()
-        suspend fun setAside(m: UnreadMessageEntity, state: String) {
-            unreadMessages.setState(m.id, state, m.transactionId, dismissed = true)
-            m.transactionId?.let { txId ->
-                dao.get(txId)?.takeIf { it.status != ReviewStatus.IGNORED.name }?.let { tx ->
-                    changedTransactions += tx.id to tx.status
-                    dao.setStatus(tx.id, ReviewStatus.IGNORED.name)
-                }
+        unreadMessages.setState(message.id, MessageState.NOT_MONEY, message.transactionId, dismissed = true)
+        message.transactionId?.let { txId ->
+            dao.get(txId)?.takeIf { it.status == ReviewStatus.PENDING.name }?.let { tx ->
+                changedTransactions += tx.id to tx.status
+                dao.setStatus(tx.id, ReviewStatus.IGNORED.name)
             }
         }
-        setAside(message, MessageState.NOT_MONEY)
-        candidatesFor(rule, exclude = id).forEach { other ->
-            changedMessages += other.id to other.state
-            setAside(other, MessageState.HIDDEN)
-        }
-        return NotMoneyResult(ruleId, changedMessages, changedTransactions)
+        return NotMoneyResult(ruleId = 0, messages = listOf(message.id to message.state), transactions = changedTransactions)
+    }
+
+    /**
+     * One-time: earlier builds learned patterns from "not money" and hid similar messages. Forget them
+     * all, so every hidden message (and its payment) comes back for review.
+     */
+    suspend fun forgetLearnedPatterns() {
+        if (prefs.patternsForgotten) return
+        messageRules.getAll().forEach { messageRules.delete(it.id) }
+        // Only what a pattern hid comes back; messages you marked yourself stay set aside.
+        unreadMessages.getAll().filter { it.state == MessageState.HIDDEN }.forEach { rereadMessage(it) }
+        prefs.patternsForgotten = true
     }
 
     suspend fun undoNotMoney(result: NotMoneyResult) {
-        messageRules.delete(result.ruleId)
+        if (result.ruleId > 0) messageRules.delete(result.ruleId)
         result.messages.forEach { (id, state) ->
             val m = unreadMessages.get(id) ?: return@forEach
             unreadMessages.setState(id, state, m.transactionId, dismissed = false)

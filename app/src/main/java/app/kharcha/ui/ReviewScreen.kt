@@ -293,8 +293,7 @@ private fun PaymentsReview(
                         onNotPayment = {
                             scope.launch {
                                 val result = repository.markNotMoney(m.id) ?: return@launch
-                                val extra = if (result.similarCount > 0) " and ${result.similarCount} like it" else ""
-                                onUndoable("Not a payment: set aside this$extra. Messages like it will be set aside from now on.") { repository.undoNotMoney(result) }
+                                onUndoable("Marked not a payment") { repository.undoNotMoney(result) }
                             }
                         },
                     )
@@ -322,8 +321,7 @@ private fun PaymentsReview(
                     onNotMoney = {
                         scope.launch {
                             val result = repository.markTransactionNotMoney(t.id) ?: return@launch
-                            val extra = if (result.similarCount > 0) " and ${result.similarCount} similar" else ""
-                            onUndoable("Not money: hidden this$extra. Messages like it will be hidden from now on.") { repository.undoNotMoney(result) }
+                            onUndoable("Marked not a payment") { repository.undoNotMoney(result) }
                         }
                     },
                     createCategory = { label, emoji -> repository.saveCategory(Category.forTag(label, emoji)) },
@@ -500,8 +498,8 @@ private fun ReviewCard(
     var type by remember(t.id) { mutableStateOf(t.category.takeIf { !it.countsAsSpend }) }
     val category = type ?: tags.firstOrNull()?.let(catalog::tag) ?: Category.OTHER
     val summary = when {
-        type != null -> "${category.emoji} ${category.label}" + if (tags.isEmpty()) "" else " · " + tags.joinToString(", ")
-        tags.isNotEmpty() -> "${category.emoji} " + tags.joinToString(", ")
+        type != null -> "${category.emoji} ${category.label}".trim() + if (tags.isEmpty()) "" else " · " + tags.joinToString(", ")
+        tags.isNotEmpty() -> tags.joinToString(", ")
         else -> "No tags yet"
     }
     // One choice shouldn't relabel every payment to a merchant that sells several things.
@@ -672,7 +670,7 @@ private fun ReviewCard(
                 Text("✓ Reviewed")
             }
         }
-        TextButton(onClick = onNotMoney) { Text("Not money — hide messages like this", color = Faint) }
+        TextButton(onClick = onNotMoney) { Text("Not a payment", color = Faint) }
         }
     }
 
@@ -724,7 +722,7 @@ fun ConfidenceTag(confidence: Confidence) {
 
 @Composable
 private fun CategoryChip(category: Category, selected: Boolean, onClick: () -> Unit) =
-    CategoryChip("${category.emoji} ${category.label}", selected, onClick)
+    CategoryChip("${category.emoji} ${category.label}".trim(), selected, onClick)
 
 @Composable
 private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {

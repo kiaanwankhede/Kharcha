@@ -44,6 +44,7 @@ class KharchaApplication : Application() {
         container.scope.launch {
             container.repository.migrateToCategoryTree()
             container.repository.migrateToTags()
+            container.repository.forgetLearnedPatterns()
         }
         keepWidgetFresh()
     }

@@ -100,8 +100,7 @@ fun MessagesView(
     fun notMoney(m: UnreadMessageEntity) {
         scope.launch {
             val result = repository.markNotMoney(m.id) ?: return@launch
-            val extra = if (result.similarCount > 0) " and ${result.similarCount} similar" else ""
-            onUndoable("Hid this message$extra. Messages like it will be hidden from now on.") { repository.undoNotMoney(result) }
+            onUndoable("Marked not a payment") { repository.undoNotMoney(result) }
         }
     }
 
@@ -113,7 +112,7 @@ fun MessagesView(
         item {
             Text(
                 "Every message from your banks, and what the app did with it. Personal messages and OTPs are never kept. " +
-                    "Mark anything that isn’t money and the app learns to hide messages like it.",
+                    "Mark anything that isn’t a payment. Only that message is affected.",
                 color = Muted,
                 style = MaterialTheme.typography.bodySmall,
             )

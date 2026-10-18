@@ -164,16 +164,13 @@ private fun EditCategoryDialog(
         title = { Text("Edit tag") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(emoji, { emoji = it.take(4) }, label = { Text("Emoji") }, singleLine = true, modifier = Modifier.width(84.dp))
-                    OutlinedTextField(label, { label = it.take(30) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.weight(1f))
-                }
+                OutlinedTextField(label, { label = it.take(30) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (others.isNotEmpty()) {
                     Box {
                         OutlinedButton(onClick = { mergeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text("Merge into another tag ▾") }
                         DropdownMenu(expanded = mergeMenu, onDismissRequest = { mergeMenu = false }) {
                             others.forEach { other ->
-                                DropdownMenuItem(text = { Text("${other.emoji}  ${other.label}") }, onClick = {
+                                DropdownMenuItem(text = { Text("${other.emoji}  ${other.label}".trim()) }, onClick = {
                                     mergeMenu = false
                                     onMerge(other)
                                 })
@@ -192,7 +189,7 @@ private fun EditCategoryDialog(
                 }
             }
         },
-        confirmButton = { TextButton(enabled = label.isNotBlank(), onClick = { onSave(label.trim(), emoji.trim().ifEmpty { "🏷️" }) }) { Text("Save") } },
+        confirmButton = { TextButton(enabled = label.isNotBlank(), onClick = { onSave(label.trim(), emoji) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -200,7 +197,7 @@ private fun EditCategoryDialog(
 @Composable
 fun CategoryMenuItems(catalog: CategoryCatalog, filter: (Category) -> Boolean = { true }, onPick: (Category) -> Unit) {
     (catalog.tags.filter(filter) + Category.OTHER).forEach { option ->
-        DropdownMenuItem(text = { Text("${option.emoji}  ${option.label}") }, onClick = { onPick(option) })
+        DropdownMenuItem(text = { Text("${option.emoji}  ${option.label}".trim()) }, onClick = { onPick(option) })
     }
 }
 
@@ -232,7 +229,7 @@ fun EmojiBadge(emoji: String, size: Int = 40) {
             .clip(RoundedCornerShape((size / 3).dp))
             .background(Sand),
         contentAlignment = Alignment.Center,
-    ) { Text(emoji, fontSize = (size * 0.5f).sp) }
+    ) { Text(emoji.ifBlank { "#" }, fontSize = (size * 0.5f).sp, color = if (emoji.isBlank()) Faint else Navy) }
 }
 
 private val EMOJI_CHOICES = listOf(
@@ -289,7 +286,7 @@ fun CategoryEditorDialog(
                     DropdownMenu(expanded = groupMenuOpen, onDismissRequest = { groupMenuOpen = false }) {
                         groups.forEach { group ->
                             DropdownMenuItem(
-                                text = { Text("${group.emoji}  ${group.label}") },
+                                text = { Text("${group.emoji}  ${group.label}".trim()) },
                                 onClick = {
                                     parent = group
                                     groupMenuOpen = false

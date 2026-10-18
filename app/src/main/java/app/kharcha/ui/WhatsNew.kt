@@ -16,6 +16,8 @@ object WhatsNew {
     const val RELEASES_URL = "https://github.com/kiaanwankhede/Kharcha/releases/latest"
 
     val ITEMS = listOf(
+        "✋ \"Not a payment\" only affects the message you mark. Messages hidden by earlier builds are back in Review.",
+        "#️⃣ Tags are plain words: no icons.",
         "📨 Every message from your inbox (never one-time codes) is in Review now, next to the payments: tap Not a payment or It's a payment.",
         "👆 No more swiping on review cards: use the buttons.",
         "🏷️ Tags instead of categories: give a payment as many as you like. Type one: if you have it, it's used; if it's close, it's suggested; if it's new, you're asked first. The first tag counts in your totals; every tag has its own total.",

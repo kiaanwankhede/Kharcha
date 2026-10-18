@@ -226,7 +226,7 @@ fun HomeScreen(
                     }
                     upcoming.take(3).forEach { item ->
                         Row {
-                            Text("${item.emoji}  ${item.label}", Modifier.weight(1f), maxLines = 1)
+                            Text("${item.emoji}  ${item.label}".trim(), Modifier.weight(1f), maxLines = 1)
                             Text(
                                 "${item.date.dayOfMonth} ${item.date.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)} · ${Money.format(item.amountPaise)}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -309,7 +309,7 @@ fun HomeScreen(
                                     .padding(start = 48.dp, top = 6.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("${child.category.emoji}  ${child.category.label}", Modifier.weight(1f), color = Muted)
+                                Text("${child.category.emoji}  ${child.category.label}".trim(), Modifier.weight(1f), color = Muted)
                                 Text(Money.format(child.spentPaise), color = Muted)
                             }
                         }

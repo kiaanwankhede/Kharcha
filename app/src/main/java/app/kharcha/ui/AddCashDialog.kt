@@ -70,7 +70,7 @@ fun AddCashDialog(
                 )
                 Box {
                     OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (tags.isEmpty()) "＋ Tags" else tags.joinToString(", ") { "${catalog.tag(it).emoji} $it" } + "  ▾")
+                        Text(if (tags.isEmpty()) "＋ Tags" else tags.joinToString(", ") { it } + "  ▾")
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {

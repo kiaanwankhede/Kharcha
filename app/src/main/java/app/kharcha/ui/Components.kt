@@ -90,7 +90,7 @@ fun TransactionRow(t: Transaction, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(t.merchant, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                if (t.isSplit) "✂️ Split · ${t.splits.joinToString(", ") { it.category.label }}" else "${t.category.emoji} ${t.category.label}",
+                if (t.isSplit) "✂️ Split · ${t.splits.joinToString(", ") { it.category.label }}" else "${t.category.emoji} ${t.category.label}".trim(),
                 style = MaterialTheme.typography.bodySmall,
                 color = Faint,
                 maxLines = 1,

@@ -42,6 +42,10 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean("all_messages_loaded", false)
         set(value) = prefs.edit { putBoolean("all_messages_loaded", value) }
 
+    var patternsForgotten: Boolean
+        get() = prefs.getBoolean("patterns_forgotten", false)
+        set(value) = prefs.edit { putBoolean("patterns_forgotten", value) }
+
     var tagsMigrated: Boolean
         get() = prefs.getBoolean("tags_migrated", false)
         set(value) = prefs.edit { putBoolean("tags_migrated", value) }

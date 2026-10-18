@@ -134,7 +134,7 @@ fun MonthReportPanel(transactions: List<Transaction>, today: LocalDate, groupOf:
         }
         report.topGroups.forEach { g ->
             Row {
-                Text("${g.group.emoji}  ${g.group.label}", Modifier.weight(1f), color = Muted)
+                Text("${g.group.emoji}  ${g.group.label}".trim(), Modifier.weight(1f), color = Muted)
                 Text(Money.format(g.spentPaise), color = Muted)
             }
         }
@@ -162,7 +162,7 @@ fun MerchantScreen(container: AppContainer, key: String, onBack: () -> Unit, onT
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { BackHeader(page?.name ?: "Payee", onBack, page?.let { "${it.category.emoji} ${it.category.label}" }) }
+        item { BackHeader(page?.name ?: "Payee", onBack, page?.let { "${it.category.emoji} ${it.category.label}".trim() }) }
         if (page == null) {
             item { EmptyState("No reviewed payments", "Payments show up here once they are reviewed.") }
             return@LazyColumn

@@ -191,28 +191,12 @@ fun CreateCategoryDialog(
     onUseExisting: (Category) -> Unit = {},
 ) {
     var label by remember { mutableStateOf(Tags.clean(name)) }
-    val guess = remember(label) { CategoryMatch.emojiFor(label) }
-    var picked by remember { mutableStateOf<String?>(null) }
-    val emoji = picked ?: guess
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Create a new tag?") },
+        title = { Text("Create tag “${Tags.clean(label)}”?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(label, { label = it.take(30) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    (listOf(guess) + CREATE_EMOJI).distinct().forEach { e ->
-                        Text(
-                            e,
-                            Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (e == emoji) Navy else CardColor)
-                                .clickable { picked = e }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
-                }
+                OutlinedTextField(label, { label = it.replace(",", "").take(30) }, label = { Text("Tag") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (similar.isNotEmpty()) {
                     Text("You already have something close:", color = Muted, style = MaterialTheme.typography.bodySmall)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -221,19 +205,15 @@ fun CreateCategoryDialog(
                 }
             }
         },
-        confirmButton = { TextButton(enabled = label.isNotBlank(), onClick = { onCreate(label.trim(), emoji) }) { Text("Create $emoji ${label.trim()}") } },
+        confirmButton = { TextButton(enabled = Tags.clean(label).isNotEmpty(), onClick = { onCreate(Tags.clean(label), "") }) { Text("Create") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
-private val CREATE_EMOJI = listOf(
-    "🍔", "🛒", "🏠", "⛽", "🚕", "💊", "🧸", "🎓", "👪", "🛍️", "💡", "📱", "🧹", "🎬", "🎁", "🪔", "📈", "🏦", "💼", "☕", "✈️", "🏷️",
-)
-
 @Composable
 fun PickChip(category: Category, selected: Boolean, onClick: () -> Unit) {
     Text(
-        "${category.emoji} ${category.label}",
+        "${category.emoji} ${category.label}".trim(),
         Modifier
             .clip(RoundedCornerShape(50))
             .background(if (selected) Navy else CardColor)

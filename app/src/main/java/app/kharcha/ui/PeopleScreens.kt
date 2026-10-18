@@ -292,7 +292,7 @@ fun TripsScreen(container: AppContainer, onBack: () -> Unit, onTransaction: (Lon
                 if (open) {
                     summary.byCategory.forEach { c ->
                         Row {
-                            Text("${c.category.emoji}  ${c.category.label}", Modifier.weight(1f), color = Muted)
+                            Text("${c.category.emoji}  ${c.category.label}".trim(), Modifier.weight(1f), color = Muted)
                             Text(Money.format(c.spentPaise), color = Muted)
                         }
                     }
@@ -579,7 +579,7 @@ private fun GoalDialog(initial: Goal?, onDismiss: () -> Unit, onSave: (Goal) -> 
                             linkMenu = false
                         })
                         savings.forEach { c ->
-                            DropdownMenuItem(text = { Text("${c.emoji}  ${c.label}") }, onClick = {
+                            DropdownMenuItem(text = { Text("${c.emoji}  ${c.label}".trim()) }, onClick = {
                                 linked = c.id
                                 linkMenu = false
                             })

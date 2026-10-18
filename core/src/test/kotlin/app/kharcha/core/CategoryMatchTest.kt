@@ -52,10 +52,10 @@ class TagCategoryTest {
         val food = Category.forTag(" Food ")
         assertEquals("tag:food", food.id)
         assertEquals("food", food.tagName)
-        assertEquals("🍔", food.emoji)
+        assertEquals("", food.emoji) // tags have no icon
         assertTrue(food.countsAsSpend)
         val catalog = CategoryCatalog(listOf(food.copy(emoji = "🍛")))
-        assertEquals("🍛", catalog.tag("FOOD").emoji)
+        assertEquals("", catalog.tag("FOOD").emoji)
         assertEquals(food, CategoryCatalog().tag("food"))
 
         val zone = java.time.ZoneId.of("Asia/Kolkata")
