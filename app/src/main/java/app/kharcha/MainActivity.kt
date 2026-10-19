@@ -47,6 +47,21 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             val theme by container.prefs.themeFlow.collectAsStateWithLifecycle()
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val dark = when (theme) {
+                "dark" -> true
+                "light" -> false
+                else -> systemDark
+            }
+            // Status and navigation bar icons follow the app's own theme, not just the phone's.
+            androidx.compose.runtime.DisposableEffect(dark) {
+                val transparent = android.graphics.Color.TRANSPARENT
+                enableEdgeToEdge(
+                    statusBarStyle = androidx.activity.SystemBarStyle.auto(transparent, transparent) { dark },
+                    navigationBarStyle = androidx.activity.SystemBarStyle.auto(transparent, transparent) { dark },
+                )
+                onDispose { }
+            }
             KharchaTheme(theme) {
                 if (container.prefs.lockEnabled && !unlocked) {
                     LockScreen(onUnlock = ::authenticate)

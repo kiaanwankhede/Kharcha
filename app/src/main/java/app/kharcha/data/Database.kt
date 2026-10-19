@@ -79,7 +79,10 @@ object MessageState {
  * Every message from a bank sender (never personal chats, never OTPs) and what the app did with it.
  * The table name is from when it only held messages the parser couldn't read.
  */
-@Entity(tableName = "unread_messages", indices = [Index(value = ["sender", "receivedAt"], unique = true)])
+@Entity(
+    tableName = "unread_messages",
+    indices = [Index(value = ["sender", "receivedAt"], unique = true), Index(value = ["state", "receivedAt"])],
+)
 data class UnreadMessageEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sender: String,
@@ -247,7 +250,12 @@ fun Transaction.toEntity() = TransactionEntity(
     timestampMillis = timestampMillis,
     merchant = merchant,
     merchantKey = merchantKey,
-    category = if (category.isTag) Category.OTHER.id else category.id,
+    category = when {
+        category.isTag -> Category.OTHER.id
+        // Untagged with a hint ("looks like Food delivery"): keep the old id so the hint survives a save.
+        category.id == Category.OTHER.id && hint != null -> Category.BUILT_IN.firstOrNull { it.label == hint }?.id ?: Category.OTHER.id
+        else -> category.id
+    },
     source = source.name,
     rawText = rawText,
     accountLast4 = accountLast4,
@@ -326,6 +334,10 @@ interface TransactionDao {
     @Query("UPDATE transactions SET status = :status WHERE id = :id")
     suspend fun setStatus(id: Long, status: String)
 
+    /** One write for many payments, so the lists reload once instead of once per payment. */
+    @Query("UPDATE transactions SET status = :status WHERE id IN (:ids)")
+    suspend fun setStatusIn(ids: List<Long>, status: String)
+
     @Query("UPDATE transactions SET status = 'REVIEWED' WHERE status = 'PENDING' AND timestampMillis < :before")
     suspend fun reviewAllBefore(before: Long)
 
@@ -346,6 +358,9 @@ interface MerchantRuleDao {
 
     @Query("DELETE FROM merchant_rules WHERE category = :category")
     suspend fun deleteForCategory(category: String)
+
+    @Query("DELETE FROM merchant_rules WHERE merchantKey = :merchantKey")
+    suspend fun deleteForMerchant(merchantKey: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(rules: List<MerchantRuleEntity>)
@@ -395,6 +410,16 @@ interface UnreadMessageDao {
 
     @Query("UPDATE unread_messages SET state = :state, transactionId = :transactionId, dismissed = :dismissed WHERE id = :id")
     suspend fun setState(id: Long, state: String, transactionId: Long?, dismissed: Boolean)
+
+    @Query("UPDATE unread_messages SET state = :state, dismissed = :dismissed WHERE id IN (:ids)")
+    suspend fun setStateIn(ids: List<Long>, state: String, dismissed: Boolean)
+
+    /**
+     * The same message seen before. The SMS receiver and the inbox reader stamp slightly different
+     * times, so this matches sender and text within a few minutes rather than the exact time.
+     */
+    @Query("SELECT * FROM unread_messages WHERE sender = :sender AND body = :body AND receivedAt BETWEEN :from AND :to LIMIT 1")
+    suspend fun findSame(sender: String, body: String, from: Long, to: Long): UnreadMessageEntity?
 }
 
 @Dao
@@ -505,7 +530,7 @@ interface GoalDao {
         UnreadMessageEntity::class, PayeeNameEntity::class, BudgetEntity::class, CardBillEntity::class,
         MessageRuleEntity::class, EventEntity::class, GoalEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class KharchaDatabase : RoomDatabase() {
@@ -621,9 +646,16 @@ abstract class KharchaDatabase : RoomDatabase() {
             }
         }
 
+        // Faster "messages to sort" queries now that every SMS is kept.
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_unread_messages_state_receivedAt` ON `unread_messages` (`state`, `receivedAt`)")
+            }
+        }
+
         fun create(context: Context): KharchaDatabase =
             Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .build()
     }
 }

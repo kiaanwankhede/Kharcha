@@ -213,7 +213,7 @@ private fun MainScreen(
             if (tab == Tab.HOME || tab == Tab.TRANSACTIONS) {
                 ExtendedFloatingActionButton(
                     onClick = { addingCash = true },
-                    containerColor = Navy,
+                    containerColor = Accent,
                     contentColor = Paper,
                     text = { Text("＋ Add cash") },
                     icon = {},

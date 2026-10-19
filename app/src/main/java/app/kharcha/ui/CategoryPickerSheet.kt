@@ -216,7 +216,7 @@ fun PickChip(category: Category, selected: Boolean, onClick: () -> Unit) {
         "${category.emoji} ${category.label}".trim(),
         Modifier
             .clip(RoundedCornerShape(50))
-            .background(if (selected) Navy else CardColor)
+            .background(if (selected) Accent else CardColor)
             .then(if (selected) Modifier else Modifier.border(1.dp, Line, RoundedCornerShape(50)))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -256,6 +256,8 @@ fun TagPickerSheet(
     onCreate: suspend (label: String, emoji: String) -> Category,
     hints: List<String> = emptyList(),
     allowTypes: Boolean = true,
+    /** Money in or out, to offer only the built-in types that fit (no Salary on a payment out); null offers all. */
+    moneyIn: Boolean? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -277,7 +279,7 @@ fun TagPickerSheet(
 
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Paper) {
+    ModalBottomSheet(onDismissRequest = { onDone(chosenType, chosen.toList()) }, sheetState = sheetState, containerColor = Paper) {
         LazyColumn(
             Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
@@ -368,7 +370,8 @@ fun TagPickerSheet(
                             )
                             if (showOthers) {
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Category.SYSTEM.forEach { t ->
+                                    val direction = moneyIn?.let { if (it) app.kharcha.core.Direction.CREDIT else app.kharcha.core.Direction.DEBIT }
+                                    Category.SYSTEM.filter { direction == null || it.onlyFor == null || it.onlyFor == direction }.forEach { t ->
                                         PickChip(t, selected = t.id == chosenType?.id) { chosenType = if (t.id == chosenType?.id) null else t }
                                     }
                                 }

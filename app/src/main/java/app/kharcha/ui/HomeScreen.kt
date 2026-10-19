@@ -265,8 +265,8 @@ fun HomeScreen(
         }
         summary.safeToSpendTodayPaise?.let { safe ->
             item {
-                Panel(color = Navy) {
-                    Text("Safe to spend today", color = Sand)
+                Panel(color = Accent) {
+                    Text("Safe to spend today", color = Paper.copy(alpha = 0.8f))
                     Text(Money.format(safe), color = Paper, fontSize = 30.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -285,13 +285,28 @@ fun HomeScreen(
             items(byGroup, key = { it.group.id }) { group ->
                 val share = if (summary.spentPaise > 0) (group.spentPaise * 100 / summary.spentPaise) else 0L
                 val expanded = group.group.id in expandedGroups
-                Panel(Modifier.clickable { expandedGroups = if (expanded) expandedGroups - group.group.id else expandedGroups + group.group.id }) {
+                val single = group.children.size == 1 && group.children.first().category.id == group.group.id
+                val summaryOnly = group.group == Category.UNLOGGED_CASH || group.group == Category.UNTRACKED_WALLET
+                Panel(
+                    Modifier.clickable {
+                        when {
+                            summaryOnly -> Unit
+                            single -> onCategory(group.group)
+                            else -> expandedGroups = if (expanded) expandedGroups - group.group.id else expandedGroups + group.group.id
+                        }
+                    },
+                ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         EmojiBadge(group.group.emoji, size = 36)
                         Column(Modifier.weight(1f)) {
                             Text(group.group.label, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "$share% of spending ${if (expanded) "▴" else "▾"}",
+                                "$share% of spending" + when {
+                                    summaryOnly -> ""
+                                    single -> " ›"
+                                    expanded -> " ▴"
+                                    else -> " ▾"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Faint,
                             )
@@ -299,7 +314,7 @@ fun HomeScreen(
                         Text(Money.format(group.spentPaise), fontWeight = FontWeight.SemiBold)
                     }
                     Bar(group.spentPaise / top)
-                    if (expanded) {
+                    if (expanded && !single && !summaryOnly) {
                         group.children.forEach { child ->
                             val clickable = child.category != Category.UNLOGGED_CASH && child.category != Category.UNTRACKED_WALLET
                             Row(

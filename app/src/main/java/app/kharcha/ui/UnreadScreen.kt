@@ -90,9 +90,9 @@ fun UnreadScreen(container: AppContainer, onBack: () -> Unit) {
             message = message,
             catalog = catalog,
             onDismiss = { adding = null },
-            onSave = { amount, direction, payee, category ->
+            onSave = { amount, direction, payee, type, tags ->
                 adding = null
-                scope.launch { repository.addFromMessage(message, amount, direction, payee, category) }
+                scope.launch { repository.addFromMessage(message, amount, direction, payee, type, tags) }
             },
         )
     }
@@ -103,20 +103,23 @@ fun copyToClipboard(context: Context, text: String) {
     clipboard?.setPrimaryClip(ClipData.newPlainText("Bank message", text))
 }
 
+/** "It's a payment": amount, which way, who, and tags (or a built-in type like Salary for money in). */
 @Composable
 fun AddFromMessageDialog(
     message: UnreadMessageEntity,
     catalog: CategoryCatalog,
     onDismiss: () -> Unit,
-    onSave: (amountPaise: Long, direction: Direction, payee: String, category: Category) -> Unit,
+    onSave: (amountPaise: Long, direction: Direction, payee: String, type: Category?, tags: List<String>) -> Unit,
+    onCreateTag: suspend (label: String, emoji: String) -> Category = { label, _ -> Category.forTag(label) },
 ) {
     var amount by remember {
         mutableStateOf(message.amountPaise?.let { Money.format(it, showPaise = it % 100 != 0L).removePrefix("₹").replace(",", "") }.orEmpty())
     }
     var direction by remember { mutableStateOf(Direction.DEBIT) }
     var payee by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf(Category.OTHER) }
-    var menuOpen by remember { mutableStateOf(false) }
+    var tags by remember { mutableStateOf(emptyList<String>()) }
+    var type by remember { mutableStateOf<Category?>(null) }
+    var picking by remember { mutableStateOf(false) }
     val paise = Money.parsePaise(amount)
 
     AlertDialog(
@@ -135,7 +138,14 @@ fun AddFromMessageDialog(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(Direction.DEBIT to "Money out", Direction.CREDIT to "Money in").forEach { (value, label) ->
-                        if (direction == value) Button(onClick = {}) { Text(label) } else OutlinedButton(onClick = { direction = value }) { Text(label) }
+                        if (direction == value) {
+                            Button(onClick = {}) { Text(label) }
+                        } else {
+                            OutlinedButton(onClick = {
+                                direction = value
+                                if (type?.onlyFor != null && type?.onlyFor != value) type = null
+                            }) { Text(label) }
+                        }
                     }
                 }
                 OutlinedTextField(
@@ -145,22 +155,34 @@ fun AddFromMessageDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Box {
-                    OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("${category.emoji}  ${category.label}  ▾")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        CategoryMenuItems(catalog) { option ->
-                            category = option
-                            menuOpen = false
-                        }
-                    }
+                OutlinedButton(onClick = { picking = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        listOfNotNull(type?.label?.let { "${type?.emoji} $it".trim() }, tags.joinToString(", ").ifEmpty { null })
+                            .joinToString(" · ")
+                            .ifEmpty { if (direction == Direction.CREDIT) "Income (tap to change)" else "＋ Tags" } + "  ▾",
+                    )
                 }
             }
         },
         confirmButton = {
-            TextButton(enabled = paise != null, onClick = { onSave(paise!!, direction, payee, category) }) { Text("Add") }
+            TextButton(enabled = paise != null, onClick = { onSave(paise!!, direction, payee, type, tags) }) { Text("Add") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+
+    if (picking) {
+        TagPickerSheet(
+            catalog = catalog,
+            selected = tags,
+            type = type,
+            moneyIn = direction == Direction.CREDIT,
+            onDone = { newType, newTags ->
+                type = newType
+                tags = newTags
+                picking = false
+            },
+            onDismiss = { picking = false },
+            onCreate = onCreateTag,
+        )
+    }
 }

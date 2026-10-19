@@ -126,7 +126,7 @@ fun LockScreen(onUnlock: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Navy)
+            .background(Accent)
             .systemBarsPadding()
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

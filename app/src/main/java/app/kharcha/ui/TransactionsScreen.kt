@@ -60,7 +60,7 @@ fun TransactionsScreen(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (categoryFilter != null) {
-                    AssistChip(onClick = onClearFilter, label = { Text("${categoryFilter.emoji} ${categoryFilter.label}  ✕") })
+                    AssistChip(onClick = onClearFilter, label = { Text("${categoryFilter.emoji} ${categoryFilter.label}".trim() + "  ✕") })
                 }
                 if (ignored.isNotEmpty()) {
                     FilterChip(

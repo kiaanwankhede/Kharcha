@@ -18,7 +18,7 @@ import javax.crypto.spec.SecretKeySpec
 
 @Serializable
 data class BackupPayload(
-    val version: Int = 3,
+    val version: Int = 4,
     val createdAtMillis: Long,
     val transactions: List<Transaction>,
     /** Merchant key -> category the user chose. */
@@ -30,6 +30,8 @@ data class BackupPayload(
     val payeeNames: Map<String, String> = emptyMap(),
     val events: List<BackupEvent> = emptyList(),
     val goals: List<BackupGoal> = emptyList(),
+    /** Merchant key -> stored rule as is ("tags:food,kids" or a built-in type id); covers tag rules. */
+    val rawMerchantRules: Map<String, String> = emptyMap(),
 )
 
 @Serializable

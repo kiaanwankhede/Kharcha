@@ -45,7 +45,8 @@ class Classifier(
     fun classify(parsed: ParsedTransaction): Transaction {
         val detected = Merchants.resolve(parsed.counterparty, parsed.vpa)
         val resolved = payeeNames[detected.key]?.let { detected.copy(name = it, key = Merchants.keyOf(it)) } ?: detected
-        val ruled = rules[resolved.key] ?: rules[detected.key]
+        // A remembered type only applies the way its money moves: "Lent" never labels their repayment.
+        val ruled = (rules[resolved.key] ?: rules[detected.key])?.takeIf { it.onlyFor == null || it.onlyFor == parsed.direction }
         val (category, confidence) = if (ruled != null) ruled to Confidence.SURE else defaultCategory(parsed, resolved)
         return Transaction(
             amountPaise = parsed.amountPaise,

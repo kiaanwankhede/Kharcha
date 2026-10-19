@@ -1,5 +1,8 @@
 package app.kharcha.ui
 
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.Manifest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -85,13 +88,13 @@ fun ReviewScreen(
     streak: Int = 0,
 ) {
     var showMessages by rememberSaveable { mutableStateOf(false) }
+    val waitingMessages by container.repository.toDecide.collectAsStateWithLifecycle(initialValue = emptyList())
     Column(modifier.fillMaxWidth()) {
         Row(
             Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val waitingMessages by container.repository.toDecide.collectAsStateWithLifecycle(initialValue = emptyList())
-            listOf(false to "To review (${pending.size + waitingMessages.size})", true to "History").forEach { (value, label) ->
+            listOf(false to "To review (${pending.size + waitingMessages.size})", true to "All messages").forEach { (value, label) ->
                 if (showMessages == value) {
                     Button(onClick = {}) { Text(label) }
                 } else {
@@ -102,7 +105,7 @@ fun ReviewScreen(
         if (showMessages) {
             MessagesView(container, onOpenTransaction, onUndoable, Modifier.padding(top = 8.dp))
         } else {
-            PaymentsReview(container, pending, catalog, usage, lookup, unreadCount, onOpenUnread, onUndoable, Modifier, streak)
+            PaymentsReview(container, pending, waitingMessages, catalog, usage, lookup, onUndoable, Modifier, streak)
         }
     }
 }
@@ -111,18 +114,19 @@ fun ReviewScreen(
 private fun PaymentsReview(
     container: AppContainer,
     pending: List<Transaction>,
+    messages: List<UnreadMessageEntity>,
     catalog: CategoryCatalog,
     usage: List<Category>,
     lookup: (Long) -> Transaction?,
-    unreadCount: Int,
-    onOpenUnread: () -> Unit,
     /** Shows a message with an Undo action that runs [undo]. */
     onUndoable: (message: String, undo: suspend () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
     streak: Int = 0,
 ) {
     val repository = container.repository
-    val scope = rememberCoroutineScope()
+    // App-wide scope: leaving the screen mid-way must not cancel a half-done save.
+    val scope = container.scope
+    val context = androidx.compose.ui.platform.LocalContext.current
     var confirmAcceptAll by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(ReviewFilter.ALL) }
@@ -139,16 +143,26 @@ private fun PaymentsReview(
     }
     val isFiltered = query.isNotBlank() || filter != ReviewFilter.ALL
     // Every message nobody has decided on yet sits in the same list as the payments.
-    val messages by repository.toDecide.collectAsStateWithLifecycle(initialValue = emptyList())
     var adding by remember { mutableStateOf<UnreadMessageEntity?>(null) }
     var askingDate by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
     var scanned by remember { mutableStateOf<app.kharcha.capture.ScanProgress?>(null) }
+    fun messageMatches(m: UnreadMessageEntity, q: String) = q.isEmpty() || m.body.lowercase().contains(q) || m.sender.lowercase().contains(q)
     val shownMessages = remember(messages, query, filter) {
         val q = query.trim().lowercase()
-        messages.filter { m ->
-            (q.isEmpty() || m.body.lowercase().contains(q) || m.sender.lowercase().contains(q)) && filter.acceptsDay(dateOf(m.receivedAt), today)
+        messages.filter { m -> messageMatches(m, q) && filter.acceptsDay(dateOf(m.receivedAt), today) }
+    }
+    // Filter chip counts in one pass, with the same rules as the list.
+    val counts = remember(pending, messages, query) {
+        val q = query.trim().lowercase()
+        val matchingPayments = pending.filter { it.matches(query) }
+        val matchingMessages = messages.filter { messageMatches(it, q) }
+        ReviewFilter.entries.associateWith { option ->
+            matchingPayments.count { option.accepts(it, today) } + matchingMessages.count { option.acceptsDay(dateOf(it.receivedAt), today) }
         }
+    }
+    val launchScan = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (hasSmsPermission(context)) askingDate = true
     }
     val total = pending.size + messages.size
     val byDay = remember(shown, shownMessages, sort) {
@@ -171,15 +185,13 @@ private fun PaymentsReview(
                 if (streak > 1) {
                     Text("🔥 $streak-day streak of clearing your inbox", color = Rust, fontWeight = FontWeight.SemiBold)
                 }
-                Text(
-                    if (total == 0) {
-                        "You’re all caught up."
-                    } else {
-                        "${pending.size} payment${if (pending.size == 1) "" else "s"} and ${messages.size} other message${if (messages.size == 1) "" else "s"} to go through. " +
-                            "Payments count in your totals once reviewed; tell the app which messages aren’t payments."
-                    },
-                    color = Muted,
-                )
+                if (total > 0) {
+                    Text(
+                        "${pending.size} payment${if (pending.size == 1) "" else "s"} and ${messages.size} other message${if (messages.size == 1) "" else "s"}. " +
+                            "Payments count in your totals once reviewed.",
+                        color = Muted,
+                    )
+                }
             }
         }
         // A big backlog (often from the first inbox scan): offer to accept the old ones in one go.
@@ -195,8 +207,8 @@ private fun PaymentsReview(
                     )
                     Button(onClick = {
                         val ids = old.map { it.id }
-                        scope.launch { ids.forEach { repository.accept(it) } }
-                        onUndoable("Accepted ${ids.size} older payments") { ids.forEach { repository.sendBackToReview(it) } }
+                        scope.launch { repository.acceptAll(ids) }
+                        onUndoable("Accepted ${ids.size} older payments") { repository.sendAllBackToReview(ids) }
                     }) { Text("Accept ${old.size} older payments") }
                 }
             }
@@ -206,7 +218,9 @@ private fun PaymentsReview(
                 Panel(color = WarmTint) {
                     Text("Bring in the rest of your inbox", fontWeight = FontWeight.Bold)
                     Text("Read your SMS from a date you pick; every message (never one-time codes) lands here to sort.", color = Muted)
-                    Button(enabled = !scanning, onClick = { askingDate = true }) {
+                    Button(enabled = !scanning, onClick = {
+                        if (hasSmsPermission(context)) askingDate = true else launchScan.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
+                    }) {
                         Text(if (scanning) "Reading… ${scanned?.checked ?: 0} of ${scanned?.total ?: 0}" else "Read my inbox…")
                     }
                 }
@@ -244,8 +258,7 @@ private fun PaymentsReview(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         ReviewFilter.entries.forEach { option ->
-                            val count = pending.count { it.matches(query) && option.accepts(it, today) } +
-                                messages.count { option.acceptsDay(dateOf(it.receivedAt), today) && (query.isBlank() || it.body.contains(query.trim(), ignoreCase = true)) }
+                            val count = counts[option] ?: 0
                             CategoryChip("${option.label} ($count)", selected = filter == option) { filter = option }
                         }
                     }
@@ -265,6 +278,18 @@ private fun PaymentsReview(
                         }
                     }
                 }
+            }
+        }
+        if (shownMessages.size > 1) {
+            item {
+                OutlinedButton(
+                    onClick = {
+                        val states = shownMessages.map { it.id to it.state }
+                        scope.launch { repository.setAsideMessages(states.map { it.first }) }
+                        onUndoable("Marked ${states.size} messages not payments") { repository.restoreMessages(states) }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Not payments: all ${shownMessages.size} messages shown") }
             }
         }
         if (total > 0 && shown.isEmpty() && shownMessages.isEmpty()) {
@@ -306,12 +331,16 @@ private fun PaymentsReview(
                     quickPicks = usage,
                     twin = t.possibleDuplicateOf?.let(lookup),
                     onReview = { type, tags, remember, note ->
-                        scope.launch { repository.reviewTagged(t.id, type, tags, remember, note) }
-                        onUndoable("Reviewed ${t.merchant}") { repository.sendBackToReview(t.id) }
+                        scope.launch {
+                            val undo = repository.reviewTagged(t.id, type, tags, remember, note) ?: return@launch
+                            onUndoable("Reviewed ${t.merchant}") {
+                                repository.undoReview(undo)
+                            }
+                        }
                     },
-                    onIgnore = {
-                        scope.launch { repository.ignore(t.id) }
-                        onUndoable("Ignored ${t.merchant}") { repository.sendBackToReview(t.id) }
+                    onAcceptAsIs = {
+                        scope.launch { repository.accept(t.id) }
+                        onUndoable("Reviewed ${t.merchant}") { repository.sendBackToReview(t.id) }
                     },
                     onConfirmDuplicate = {
                         scope.launch { repository.confirmDuplicate(t.id) }
@@ -334,8 +363,8 @@ private fun PaymentsReview(
                 OutlinedButton(
                     onClick = {
                         val ids = sure.map { it.id }
-                        scope.launch { ids.forEach { repository.accept(it) } }
-                        onUndoable("Accepted ${ids.size} sure payments") { ids.forEach { repository.sendBackToReview(it) } }
+                        scope.launch { repository.acceptAll(ids) }
+                        onUndoable("Accepted ${ids.size} sure payments") { repository.sendAllBackToReview(ids) }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("✓ Accept the ${sure.size} marked Sure") }
@@ -362,8 +391,8 @@ private fun PaymentsReview(
             askingDate = false
             scanning = true
             scope.launch {
-                container.scanner.scan(date.atStartOfDay(Zone).toInstant().toEpochMilli()) { scanned = it }
-                container.prefs.allMessagesLoaded = true
+                runCatching { container.scanner.scan(date.atStartOfDay(Zone).toInstant().toEpochMilli()) { scanned = it } }
+                    .onSuccess { container.prefs.allMessagesLoaded = true }
                 scanning = false
             }
         })
@@ -374,10 +403,14 @@ private fun PaymentsReview(
             message = message,
             catalog = catalog,
             onDismiss = { adding = null },
-            onSave = { amount, direction, payee, category ->
+            onSave = { amount, direction, payee, type, tags ->
                 adding = null
-                scope.launch { repository.addFromMessage(message, amount, direction, payee, category) }
+                scope.launch {
+                    val added = repository.addFromMessage(message, amount, direction, payee, type, tags)
+                    onUndoable("Added as a payment") { repository.undoAddFromMessage(added) }
+                }
             },
+            onCreateTag = { label, _ -> repository.saveCategory(Category.forTag(label)) },
         )
     }
 
@@ -390,8 +423,8 @@ private fun PaymentsReview(
                 TextButton(onClick = {
                     confirmAcceptAll = false
                     val ids = shown.map { it.id }
-                    scope.launch { ids.forEach { repository.accept(it) } }
-                    onUndoable("Accepted ${ids.size} payments") { ids.forEach { repository.sendBackToReview(it) } }
+                    scope.launch { repository.acceptAll(ids) }
+                    onUndoable("Accepted ${ids.size} payments") { repository.sendAllBackToReview(ids) }
                 }) { Text("Accept all") }
             },
             dismissButton = { TextButton(onClick = { confirmAcceptAll = false }) { Text("Cancel") } },
@@ -447,6 +480,8 @@ private fun MessageDecisionCard(message: UnreadMessageEntity, onPayment: () -> U
 
 private enum class ReviewFilter(val label: String) {
     ALL("All"),
+    PAYMENTS("Payments"),
+    MESSAGES("Messages"),
     GUESSES("Guesses"),
     TODAY("Today"),
     YESTERDAY("Yesterday"),
@@ -456,7 +491,8 @@ private enum class ReviewFilter(val label: String) {
     ;
 
     fun accepts(t: Transaction, today: LocalDate): Boolean = when (this) {
-        ALL -> true
+        ALL, PAYMENTS -> true
+        MESSAGES -> false
         GUESSES -> t.confidence == Confidence.GUESS || t.possibleDuplicateOf != null
         TODAY -> t.localDate() == today
         YESTERDAY -> t.localDate() == today.minusDays(1)
@@ -467,7 +503,8 @@ private enum class ReviewFilter(val label: String) {
 
     /** Messages only filter by day; the payment-only filters leave them out. */
     fun acceptsDay(day: LocalDate, today: LocalDate): Boolean = when (this) {
-        ALL -> true
+        ALL, MESSAGES -> true
+        PAYMENTS -> false
         TODAY -> day == today
         YESTERDAY -> day == today.minusDays(1)
         WEEK -> day > today.minusDays(7)
@@ -485,7 +522,7 @@ private fun ReviewCard(
     quickPicks: List<Category>,
     twin: Transaction?,
     onReview: (type: Category?, tags: List<String>, remember: Boolean, note: String?) -> Unit,
-    onIgnore: () -> Unit,
+    onAcceptAsIs: () -> Unit,
     onConfirmDuplicate: () -> Unit,
     onNotDuplicate: () -> Unit,
     onNotMoney: () -> Unit,
@@ -493,9 +530,10 @@ private fun ReviewCard(
 ) {
     val brand = remember(t.id) { Merchants.brandOf(t) }
     val multiBusiness = brand?.isMultiBusiness == true
-    var tags by remember(t.id) { mutableStateOf(t.tags) }
+    // Keyed on the stored values too, so a change made elsewhere (another card's "always") shows here.
+    var tags by remember(t.id, t.tags) { mutableStateOf(t.tags) }
     // Set only for money that isn't spending (a transfer, ATM cash...); spending is described by tags.
-    var type by remember(t.id) { mutableStateOf(t.category.takeIf { !it.countsAsSpend }) }
+    var type by remember(t.id, t.category.id) { mutableStateOf(t.category.takeIf { !it.countsAsSpend }) }
     val category = type ?: tags.firstOrNull()?.let(catalog::tag) ?: Category.OTHER
     val summary = when {
         type != null -> "${category.emoji} ${category.label}".trim() + if (tags.isEmpty()) "" else " · " + tags.joinToString(", ")
@@ -509,7 +547,9 @@ private fun ReviewCard(
     var sheetOpen by remember(t.id) { mutableStateOf(false) }
     // Sure payments start folded to one line; guesses and possible duplicates open, so you look at them.
     var expanded by remember(t.id) { mutableStateOf(t.confidence == Confidence.GUESS || twin != null) }
-    val accept = { onReview(type, tags, rememberForMerchant, note.takeIf { it.isNotBlank() }) }
+    val edited = tags != t.tags || type != t.category.takeIf { !it.countsAsSpend } || note != t.note.orEmpty() || rememberForMerchant
+    // Nothing changed: accept it as the app read it (same as "Accept all"), rather than clearing its type.
+    val accept = { if (edited) onReview(type, tags, rememberForMerchant, note.takeIf { it != t.note.orEmpty() }) else onAcceptAsIs() }
     var creating by remember(t.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     // What the app thinks this is ("Food delivery", or each thing a store like Swiggy sells).
@@ -524,8 +564,12 @@ private fun ReviewCard(
         if (t.source.name == "NOTIFICATION") "UPI app" else "Bank SMS"
     }
 
-    Panel(Modifier.clickable { expanded = !expanded }) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Panel {
+        Row(
+            Modifier.clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             EmojiBadge(if (t.isSplit) "✂️" else category.emoji, size = 40)
             Column(Modifier.weight(1f)) {
                 Text(t.merchant, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
@@ -616,7 +660,7 @@ private fun ReviewCard(
             type?.let { CategoryChip("${it.emoji} ${it.label}  ✕", selected = true) { type = null } }
             tags.forEach { name ->
                 val tag = catalog.tag(name)
-                CategoryChip("${tag.emoji} ${tag.label}  ✕", selected = true) { tags = tags - name }
+                CategoryChip("${tag.label}  ✕", selected = true) { tags = tags - name }
             }
             chips.filter { it.label !in tags }.forEach { option ->
                 CategoryChip(option, selected = false) { tags = tags + option.label }
@@ -664,13 +708,12 @@ private fun ReviewCard(
             Text("Always use this for ${t.merchant}", style = MaterialTheme.typography.bodySmall, color = Muted)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onIgnore) { Text("Ignore", color = Faint) }
+            TextButton(onClick = onNotMoney) { Text("Not a payment", color = Faint) }
             Spacer(Modifier.weight(1f))
             Button(onClick = accept) {
                 Text("✓ Reviewed")
             }
         }
-        TextButton(onClick = onNotMoney) { Text("Not a payment", color = Faint) }
         }
     }
 
@@ -680,6 +723,7 @@ private fun ReviewCard(
             selected = tags,
             type = type,
             hints = hints,
+            moneyIn = t.direction == Direction.CREDIT,
             onDone = { newType, newTags ->
                 type = newType
                 tags = newTags
@@ -730,7 +774,7 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
         label,
         Modifier
             .clip(RoundedCornerShape(50))
-            .background(if (selected) Navy else Sand)
+            .background(if (selected) Accent else Sand)
             .then(if (selected) Modifier else Modifier.border(1.dp, Line, RoundedCornerShape(50)))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),

@@ -69,7 +69,7 @@ private fun Welcome(onNext: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(Navy)
+            .background(Accent)
             .safeDrawingPadding()
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -84,7 +84,7 @@ private fun Welcome(onNext: () -> Unit) {
         ) { Text("₹", color = CardColor, fontSize = 52.sp, fontWeight = FontWeight.Bold) }
         Spacer(Modifier.height(24.dp))
         Text("Kharcha", color = Paper, fontSize = 36.sp, fontWeight = FontWeight.Bold)
-        Text("Your spending, tracked automatically", color = Sand)
+        Text("Your spending, tracked automatically", color = Paper.copy(alpha = 0.8f))
         Spacer(Modifier.height(32.dp))
         Button(onClick = onNext, colors = ButtonDefaults.buttonColors(containerColor = Paper, contentColor = Navy)) {
             Text("Get started")
@@ -139,11 +139,11 @@ private fun Permissions(onNext: (smsGranted: Boolean) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("Allow access", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Kharcha reads only messages from banks and UPI apps. Everything stays on this phone.", color = Muted)
+        Text("Kharcha reads your SMS (never one-time codes) to find payments. Everything stays on this phone.", color = Muted)
 
         Panel(color = Sand) {
             Text("SMS" + if (sms) "  ✓ allowed" else "", fontWeight = FontWeight.Bold)
-            Text("Bank and UPI messages, to record each payment.", color = Muted)
+            Text("To record payments and let you sort the other messages.", color = Muted)
             if (!sms) {
                 Button(onClick = { launcher.launch(SMS_PERMISSIONS) }) { Text("Allow SMS") }
             }
@@ -213,7 +213,7 @@ private fun Backfill(container: AppContainer, onDone: () -> Unit) {
     ) {
         if (start == null) {
             Text("Read messages from which date?", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Payments from this date on will wait in Review for you. Nothing earlier is read.", color = Muted)
+            Text("Payments and messages from this date on will wait in Review for you. Nothing earlier is read.", color = Muted)
             ScanDateChoices(onPick = { from = it.toString() })
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Skip: only new messages from now") }

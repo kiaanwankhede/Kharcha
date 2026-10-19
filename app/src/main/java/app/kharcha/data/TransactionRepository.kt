@@ -14,6 +14,7 @@ import app.kharcha.core.Deduplicator
 import app.kharcha.core.Direction
 import app.kharcha.core.Event
 import app.kharcha.core.Events
+import app.kharcha.core.Kind
 import app.kharcha.core.Goal
 import app.kharcha.core.People
 import app.kharcha.core.Reimburse
@@ -40,6 +41,9 @@ import kotlinx.coroutines.sync.withLock
  */
 /** Merchant rules that tag rather than set a built-in type are stored as "tags:food,kids". */
 private const val TAG_RULE = "tags:"
+
+/** How far apart the same SMS can be stamped by the live receiver and the inbox reader. */
+private const val SAME_MESSAGE_MILLIS = 10 * 60 * 1000L
 
 class TransactionRepository(
     private val db: KharchaDatabase,
@@ -90,10 +94,19 @@ class TransactionRepository(
     val toDecide: Flow<List<UnreadMessageEntity>> = unreadMessages.observeToDecide()
 
     /** Sets many messages aside as not money at once, without learning a pattern from each. */
-    suspend fun setAsideMessages(ids: Collection<Long>) = ids.forEach { unreadMessages.setState(it, MessageState.NOT_MONEY, null, dismissed = true) }
+    suspend fun setAsideMessages(ids: Collection<Long>) = ids.chunked(500).forEach { unreadMessages.setStateIn(it, MessageState.NOT_MONEY, dismissed = true) }
 
     /** Puts messages set aside by [setAsideMessages] back as they were (id to old state). */
-    suspend fun restoreMessages(states: List<Pair<Long, String>>) = states.forEach { (id, state) -> unreadMessages.setState(id, state, null, dismissed = false) }
+    suspend fun restoreMessages(states: List<Pair<Long, String>>) =
+        states.groupBy({ it.second }, { it.first }).forEach { (state, ids) -> ids.chunked(500).forEach { unreadMessages.setStateIn(it, state, dismissed = false) } }
+
+    /** Accepts many payments as they are, in one write, and checks budgets once. */
+    suspend fun acceptAll(ids: Collection<Long>) {
+        ids.toList().chunked(500).forEach { dao.setStatusIn(it, ReviewStatus.REVIEWED.name) }
+        checkBudgets()
+    }
+
+    suspend fun sendAllBackToReview(ids: Collection<Long>) = ids.toList().chunked(500).forEach { dao.setStatusIn(it, ReviewStatus.PENDING.name) }
 
     val learnedRules: Flow<List<MessageRule>> = messageRules.observeAll().map { list -> list.map { it.toCore() } }
 
@@ -106,8 +119,12 @@ class TransactionRepository(
      * pattern the user taught. Only bank senders are read for payments.
      */
     suspend fun capture(sender: String, body: String, receivedAt: Long): Captured {
+        // Already seen (the live SMS and a later inbox read stamp slightly different times): skip, so a
+        // re-read never duplicates messages or brings back a payment you deleted or edited.
+        if (unreadMessages.findSame(sender, body, receivedAt - SAME_MESSAGE_MILLIS, receivedAt + SAME_MESSAGE_MILLIS) != null) {
+            return Captured(null, null)
+        }
         val earlyReading = SmsParser.inspect(sender, body, receivedAt)
-        if (earlyReading !is SmsParser.Reading.Read && SmsParser.isOtp(body)) return Captured(null, null)
         fun record(state: String, amount: Long? = null, transactionId: Long? = null) = UnreadMessageEntity(
             sender = sender, body = body, receivedAt = receivedAt, amountPaise = amount, dismissed = false,
             state = state, transactionId = transactionId,
@@ -117,6 +134,8 @@ class TransactionRepository(
             unreadMessages.insert(record(MessageState.BILL, bill.totalDuePaise))
             return Captured(null, null)
         }
+        // One-time codes are never kept. Checked after payments and card bills, which can mention a PIN.
+        if (earlyReading !is SmsParser.Reading.Read && SmsParser.isOtp(body)) return Captured(null, null)
         val reading = earlyReading
         val rules = messageRules.getAll().map { it.toCore() }
         if (rules.any { MessageRules.matches(it, sender, body, paymentLike = reading is SmsParser.Reading.Read) }) {
@@ -125,8 +144,8 @@ class TransactionRepository(
         }
         return when (reading) {
             is SmsParser.Reading.Read -> {
-                val created = ingest(reading.parsed)
-                val linkedId = created?.id ?: reading.parsed.reference?.let { ref -> dao.findByReference(ref).firstOrNull()?.id }
+                val (created, matchedId) = ingestDetailed(reading.parsed)
+                val linkedId = created?.id ?: matchedId
                 unreadMessages.insert(record(MessageState.PAYMENT, reading.parsed.amountPaise, linkedId))
                 Captured(created, reading.parsed)
             }
@@ -162,7 +181,7 @@ class TransactionRepository(
         val changedTransactions = mutableListOf<Pair<Long, String>>()
         unreadMessages.setState(message.id, MessageState.NOT_MONEY, message.transactionId, dismissed = true)
         message.transactionId?.let { txId ->
-            dao.get(txId)?.takeIf { it.status == ReviewStatus.PENDING.name }?.let { tx ->
+            dao.get(txId)?.takeIf { it.status != ReviewStatus.IGNORED.name }?.let { tx ->
                 changedTransactions += tx.id to tx.status
                 dao.setStatus(tx.id, ReviewStatus.IGNORED.name)
             }
@@ -214,8 +233,9 @@ class TransactionRepository(
     /** Puts a set-aside message back: its payment returns to review, or the message is read again. */
     suspend fun rereadMessage(m: UnreadMessageEntity) {
         val txId = m.transactionId
-        if (txId != null && dao.get(txId) != null) {
-            dao.setStatus(txId, ReviewStatus.PENDING.name)
+        val linked = txId?.let { dao.get(it) }
+        if (txId != null && linked != null) {
+            if (linked.status == ReviewStatus.IGNORED.name) dao.setStatus(txId, ReviewStatus.PENDING.name)
             unreadMessages.setState(m.id, MessageState.PAYMENT, txId, dismissed = false)
             return
         }
@@ -277,7 +297,10 @@ class TransactionRepository(
      * Saves a parsed message, merging it into an existing record when it is the same payment, and
      * flagging it when it only looks like one. Returns the new record, or null if it was merged.
      */
-    suspend fun ingest(parsed: ParsedTransaction): Transaction? = ingestLock.withLock {
+    suspend fun ingest(parsed: ParsedTransaction): Transaction? = ingestDetailed(parsed).first
+
+    /** Like [ingest], also giving the id of the existing record when it was merged into one. */
+    suspend fun ingestDetailed(parsed: ParsedTransaction): Pair<Transaction?, Long?> = ingestLock.withLock {
         val catalog = currentCatalog()
         val counterparty = parsed.counterparty
         val named = if (counterparty == null || counterparty.contains('@')) {
@@ -309,7 +332,7 @@ class TransactionRepository(
         if (match != null) {
             val merged = Deduplicator.merge(match, incoming)
             if (merged != match) dao.update(merged.toEntity())
-            null
+            null to match.id
         } else {
             val suspects = dao.findNear(
                 incoming.amountPaise,
@@ -319,7 +342,7 @@ class TransactionRepository(
             ).map { it.toCore(catalog) }
             val twin = suspects.firstOrNull { it.status != ReviewStatus.IGNORED && Deduplicator.isPossibleDuplicate(it, incoming) }
             val saved = incoming.copy(possibleDuplicateOf = twin?.id)
-            saved.copy(id = dao.insert(saved.toEntity()))
+            saved.copy(id = dao.insert(saved.toEntity())) to null
         }
     }
 
@@ -352,20 +375,19 @@ class TransactionRepository(
         eventDao.upsert(event.toEntity())
         ensureTag(event.tag)
         // Renamed: move the old tag over to the new name.
-        if (previous != null && previous.tag != event.tag) {
-            allTransactions().filter { previous.tag in it.tags }.forEach { t ->
-                dao.update(t.copy(tags = t.tags.map { if (it == previous.tag) event.tag else it }).toEntity())
-            }
-        }
+        if (previous != null && previous.tag != event.tag) replaceTag(previous.tag, event.tag)
         if (tagExisting) {
             val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
-            Events.untaggedInRange(event, allTransactions(), today).forEach { t -> dao.update(t.copy(tags = t.tags + event.tag).toEntity()) }
+            Events.untaggedInRange(event, allTransactions(), today).forEach { t ->
+                val e = dao.get(t.id) ?: return@forEach
+                dao.update(e.copy(tags = Tags.encode(Tags.decode(e.tags) + event.tag)))
+            }
         }
     }
 
     suspend fun deleteEvent(event: Event) {
         eventDao.delete(event.id)
-        allTransactions().filter { event.tag in it.tags }.forEach { t -> dao.update(t.copy(tags = t.tags - event.tag).toEntity()) }
+        replaceTag(event.tag, null)
     }
 
     suspend fun setTags(id: Long, tags: List<String>) {
@@ -413,28 +435,57 @@ class TransactionRepository(
     suspend fun dismissUnread(id: Long) = markNotMoney(id)
 
     /** Adds a payment the user read out of a message the parser could not understand. */
+    /** What "It's a payment" did, so it can be undone. */
+    data class AddedFromMessage(val transactionId: Long, val messageId: Long, val previousState: String)
+
+    /**
+     * "It's a payment" on a message: records it with the user's [tags] or a built-in [type] (money in
+     * defaults to income, so it never lowers spending). If the same payment may already be here (say
+     * from a UPI app notification) it waits in Review flagged as a possible duplicate.
+     */
     suspend fun addFromMessage(
         message: UnreadMessageEntity,
         amountPaise: Long,
         direction: Direction,
         payee: String,
-        category: Category,
-    ) {
+        type: Category?,
+        tags: List<String>,
+    ): AddedFromMessage {
         val name = Merchants.tidy(payee).ifEmpty { "Unknown" }
-        val id = dao.insert(
-            Transaction(
-                amountPaise = amountPaise,
-                direction = direction,
-                timestampMillis = message.receivedAt,
-                merchant = name,
-                merchantKey = Merchants.keyOf(name),
-                category = category,
-                source = Source.SMS,
-                rawText = message.body,
-                status = ReviewStatus.REVIEWED,
-            ).toEntity(),
+        val clean = tags.map(Tags::clean).filter { it.isNotEmpty() }.distinct()
+        clean.forEach { ensureTag(it) }
+        val category = type?.takeIf { !it.countsAsSpend } ?: if (direction == Direction.CREDIT && clean.isEmpty()) Category.INCOME else Category.OTHER
+        val date = java.time.Instant.ofEpochMilli(message.receivedAt).atZone(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate()
+        val tripTags = if (direction == Direction.DEBIT) Events.autoTags(eventDao.getAll().map { it.toCore() }, date) else emptyList()
+        val catalog = currentCatalog()
+        val draft = Transaction(
+            amountPaise = amountPaise,
+            direction = direction,
+            timestampMillis = message.receivedAt,
+            merchant = name,
+            merchantKey = Merchants.keyOf(name),
+            category = category,
+            source = Source.SMS,
+            rawText = message.body,
+            status = ReviewStatus.REVIEWED,
+            tags = (clean + tripTags).distinct(),
         )
+        val twin = dao.findNear(
+            amountPaise,
+            direction.name,
+            message.receivedAt - Deduplicator.SUSPECT_WINDOW_MILLIS,
+            message.receivedAt + Deduplicator.SUSPECT_WINDOW_MILLIS,
+        ).map { it.toCore(catalog) }.firstOrNull { it.status != ReviewStatus.IGNORED }
+        val saved = if (twin != null) draft.copy(possibleDuplicateOf = twin.id, status = ReviewStatus.PENDING) else draft
+        val id = dao.insert(saved.toEntity())
         unreadMessages.setState(message.id, MessageState.ADDED, id, dismissed = true)
+        checkBudgets()
+        return AddedFromMessage(id, message.id, message.state)
+    }
+
+    suspend fun undoAddFromMessage(added: AddedFromMessage) {
+        dao.delete(added.transactionId)
+        unreadMessages.setState(added.messageId, added.previousState, null, dismissed = false)
     }
 
     /** "Yes, it's a copy": the newer record is ignored. */
@@ -503,32 +554,52 @@ class TransactionRepository(
         checkBudgets()
     }
 
+    /** Everything a review changed, so Undo puts it all back (tags on other payments and the merchant rule too). */
+    data class ReviewUndo(val entities: List<TransactionEntity>, val merchantKey: String, val previousRule: MerchantRuleEntity?, val touchedRule: Boolean)
+
     /** Confirms a payment with its tags (first = main) and, for money that isn't spending, its [type]. */
-    suspend fun reviewTagged(id: Long, type: Category?, tags: List<String>, rememberForMerchant: Boolean, note: String? = null) {
+    suspend fun reviewTagged(id: Long, type: Category?, tags: List<String>, rememberForMerchant: Boolean, note: String? = null): ReviewUndo? {
+        val existing = dao.get(id) ?: return null
+        val snapshot = if (rememberForMerchant) dao.findByMerchantKey(existing.merchantKey) else listOf(existing)
+        val previousRule = rules.getAll().firstOrNull { it.merchantKey == existing.merchantKey }
         setLabels(id, type, tags, rememberForMerchant)
         if (note != null) setNote(id, note)
         dao.setStatus(id, ReviewStatus.REVIEWED.name)
         checkBudgets()
+        return ReviewUndo(snapshot, existing.merchantKey, previousRule, rememberForMerchant)
+    }
+
+    suspend fun undoReview(undo: ReviewUndo) {
+        undo.entities.forEach { dao.update(it) }
+        if (undo.touchedRule) {
+            if (undo.previousRule != null) rules.upsert(undo.previousRule) else rules.deleteForMerchant(undo.merchantKey)
+        }
     }
 
     /**
      * Sets what a payment is: its [tags] in order (the first counts in totals) and, when it isn't
-     * spending, its built-in [type] (null means spending). With [rememberForMerchant] every payment to
-     * the same merchant gets the same, now and later; those keep their trip tags.
+     * spending, its built-in [type] (null means spending). With [rememberForMerchant] payments to the
+     * same merchant get the same, now and later. Trip tags stay with their own payments and never
+     * become part of the merchant's rule; a type like "Lent" only applies to money moving the same way.
      */
     suspend fun setLabels(id: Long, type: Category?, tags: List<String>, rememberForMerchant: Boolean) {
         val existing = dao.get(id) ?: return
         val clean = tags.map(Tags::clean).filter { it.isNotEmpty() }.distinct()
-        val typeId = type?.takeIf { !it.countsAsSpend }?.id ?: Category.OTHER.id
+        val typeCategory = type?.takeIf { !it.countsAsSpend }
+        val typeId = typeCategory?.id ?: Category.OTHER.id
         clean.forEach { name -> ensureTag(name) }
         dao.update(existing.copy(category = typeId, tags = Tags.encode(clean), confidence = Confidence.SURE.name))
         if (rememberForMerchant) {
-            rules.upsert(MerchantRuleEntity(existing.merchantKey, if (typeId != Category.OTHER.id) typeId else TAG_RULE + Tags.encode(clean).orEmpty()))
             val tripTags = eventDao.getAll().map { it.toCore().tag }.toSet()
-            dao.findByMerchantKey(existing.merchantKey).filter { it.id != id }.forEach { other ->
-                val trips = Tags.decode(other.tags).filter { it in tripTags && it !in clean }
-                dao.update(other.copy(category = typeId, tags = Tags.encode(clean + trips), confidence = Confidence.SURE.name))
-            }
+            val ruleTags = clean.filterNot { it in tripTags }
+            rules.upsert(MerchantRuleEntity(existing.merchantKey, if (typeCategory != null) typeId else TAG_RULE + Tags.encode(ruleTags).orEmpty()))
+            val direction = typeCategory?.onlyFor?.name
+            dao.findByMerchantKey(existing.merchantKey)
+                .filter { it.id != id && (direction == null || it.direction == direction) }
+                .forEach { other ->
+                    val trips = Tags.decode(other.tags).filter { it in tripTags && it !in ruleTags }
+                    dao.update(other.copy(category = typeId, tags = Tags.encode(ruleTags + trips), confidence = Confidence.SURE.name))
+                }
         }
     }
 
@@ -666,15 +737,38 @@ class TransactionRepository(
      */
     suspend fun migrateToTags() {
         if (prefs.tagsMigrated) return
-        customCategories.getAll().filterNot { it.id.startsWith(Category.TAG_PREFIX) }.forEach { old ->
-            val tag = Category.forTag(old.label, old.emoji)
-            val name = tag.tagName ?: return@forEach
-            customCategories.upsert(tag.toEntity())
-            dao.getAll().filter { it.category == old.id }.forEach { e ->
-                dao.update(e.copy(category = Category.OTHER.id, tags = Tags.encode(listOf(name) + Tags.decode(e.tags))))
+        val olds = customCategories.getAll().filterNot { it.id.startsWith(Category.TAG_PREFIX) }
+        // Where each old category goes: a tag for spending, the matching built-in type for the rest.
+        val target = olds.associate { old ->
+            val kind = old.kind?.let { runCatching { Kind.valueOf(it) }.getOrNull() } ?: Kind.SPENDING
+            old.id to when (kind) {
+                Kind.SPENDING -> Category.forTag(old.label)
+                Kind.SAVING -> Category.SAVINGS
+                Kind.MOVEMENT -> Category.TRANSFER
+                Kind.INCOME -> Category.INCOME
             }
-            rules.getAll().filter { it.category == old.id }.forEach { rules.upsert(it.copy(category = TAG_RULE + name)) }
+        }
+        val all = dao.getAll()
+        olds.forEach { old ->
+            val to = target.getValue(old.id)
+            val name = to.tagName
+            if (name != null) customCategories.upsert(to.toEntity())
+            all.filter { it.category == old.id }.forEach { e ->
+                dao.update(
+                    if (name != null) e.copy(category = Category.OTHER.id, tags = Tags.encode(listOf(name) + Tags.decode(e.tags)))
+                    else e.copy(category = to.id),
+                )
+            }
+            rules.getAll().filter { it.category == old.id }.forEach { rules.upsert(it.copy(category = if (name != null) TAG_RULE + name else to.id)) }
+            budgetDao.getAll().filter { it.targetId == old.id }.forEach { budgetDao.upsert(it.copy(targetId = to.id, label = to.label, emoji = to.emoji)) }
+            goalDao.getAll().filter { it.linkedCategoryId == old.id }.forEach { goalDao.upsert(it.copy(linkedCategoryId = to.id)) }
             customCategories.delete(old.id)
+        }
+        // Split parts still name the old ids.
+        dao.getAll().filter { e -> e.splitsJson != null && olds.any { e.splitsJson.contains(it.id) } }.forEach { e ->
+            var json = e.splitsJson ?: return@forEach
+            olds.forEach { old -> json = json.replace("\"${old.id}\"", "\"${target.getValue(old.id).id}\"") }
+            dao.update(e.copy(splitsJson = json))
         }
         prefs.tagsMigrated = true
     }
@@ -712,6 +806,7 @@ class TransactionRepository(
             payeeNames = currentPayeeNames(),
             events = eventDao.getAll().map { app.kharcha.core.BackupEvent.of(it.toCore()) },
             goals = goalDao.getAll().map { app.kharcha.core.BackupGoal.of(it.toCore()) },
+            rawMerchantRules = rules.getAll().associate { it.merchantKey to it.category },
         )
     }
 
@@ -727,7 +822,11 @@ class TransactionRepository(
         customCategories.deleteAll()
         payload.customCategories.forEach { customCategories.upsert(it.toEntity()) }
         dao.insertAll(payload.transactions.map { it.toEntity() })
-        rules.insertAll(payload.merchantRules.map { (key, category) -> MerchantRuleEntity(key, category.id) })
+        if (payload.rawMerchantRules.isNotEmpty()) {
+            rules.insertAll(payload.rawMerchantRules.map { (key, value) -> MerchantRuleEntity(key, value) })
+        } else {
+            rules.insertAll(payload.merchantRules.map { (key, category) -> MerchantRuleEntity(key, category.id) })
+        }
         prefs.monthlyLimitPaise = payload.monthlyLimitPaise
         // Older backups have none of these; keep what's on the phone rather than wiping it.
         if (payload.version >= 3) {
@@ -739,6 +838,11 @@ class TransactionRepository(
             payload.events.forEach { eventDao.upsert(it.toEvent().toEntity()) }
             goalDao.deleteAll()
             payload.goals.forEach { goalDao.upsert(it.toGoal().toEntity()) }
+        }
+        // A backup from before tags still has categories: run the one-time moves on it again.
+        if (customCategories.getAll().any { !it.id.startsWith(Category.TAG_PREFIX) }) {
+            prefs.tagsMigrated = false
+            migrateToTags()
         }
     }
 

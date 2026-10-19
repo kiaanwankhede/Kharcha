@@ -113,7 +113,10 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
         CreateCategoryDialog(
             name = name,
             similar = CategoryMatch.find(name, catalog.tags).close + listOfNotNull(CategoryMatch.find(name, catalog.tags).exact),
-            onUseExisting = { creating = null },
+            onUseExisting = {
+                creating = null
+                newName = ""
+            },
             onDismiss = { creating = null },
             onCreate = { label, emoji ->
                 creating = null
@@ -158,6 +161,7 @@ private fun EditCategoryDialog(
     var label by remember { mutableStateOf(category.label) }
     var emoji by remember { mutableStateOf(category.emoji) }
     var mergeMenu by remember { mutableStateOf(false) }
+    var mergeInto by remember { mutableStateOf<Category?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -172,10 +176,17 @@ private fun EditCategoryDialog(
                             others.forEach { other ->
                                 DropdownMenuItem(text = { Text("${other.emoji}  ${other.label}".trim()) }, onClick = {
                                     mergeMenu = false
-                                    onMerge(other)
+                                    mergeInto = other
                                 })
                             }
                         }
+                    }
+                }
+                mergeInto?.let { into ->
+                    Text("Move all $payments payments from “${category.label}” to “${into.label}” and delete “${category.label}”?", color = Rust)
+                    Row {
+                        TextButton(onClick = { onMerge(into) }) { Text("Yes, merge") }
+                        TextButton(onClick = { mergeInto = null }) { Text("Cancel") }
                     }
                 }
                 if (confirmDelete) {
@@ -223,176 +234,12 @@ private fun CategoryRow(category: Category, subtitle: String?, onClick: (() -> U
 
 @Composable
 fun EmojiBadge(emoji: String, size: Int = 40) {
+    if (emoji.isBlank()) return
     Box(
         Modifier
             .size(size.dp)
             .clip(RoundedCornerShape((size / 3).dp))
             .background(Sand),
         contentAlignment = Alignment.Center,
-    ) { Text(emoji.ifBlank { "#" }, fontSize = (size * 0.5f).sp, color = if (emoji.isBlank()) Faint else Navy) }
-}
-
-private val EMOJI_CHOICES = listOf(
-    "🍔", "☕", "🍺", "🛒", "🛍️", "👕", "🚕", "✈️", "⛽", "🏠", "💡", "📱", "🎬", "🎮", "🎁", "💊",
-    "🏋️", "🐶", "👶", "🎓", "💼", "🧾", "💇", "🔧", "🙏", "❤️", "🏷️",
-)
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun CategoryEditorDialog(
-    initial: Category?,
-    onDismiss: () -> Unit,
-    onSave: (label: String, emoji: String, parent: Category) -> Unit,
-    defaultGroup: Category = Category.G_OTHER,
-    groups: List<Category> = Category.GROUPS,
-    onDelete: (() -> Unit)? = null,
-) {
-    var label by remember { mutableStateOf(initial?.label.orEmpty()) }
-    var emoji by remember { mutableStateOf(initial?.emoji ?: "🏷️") }
-    var parent by remember { mutableStateOf(if (defaultGroup.isGroup) defaultGroup else Category.groupOf(defaultGroup)) }
-    var groupMenuOpen by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New category" else "Edit category") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    EmojiBadge(emoji, size = 48)
-                    OutlinedTextField(
-                        value = label,
-                        onValueChange = { label = it.take(30) },
-                        label = { Text("Name") },
-                        singleLine = true,
-                    )
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    EMOJI_CHOICES.forEach { choice ->
-                        Box(
-                            Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .then(if (choice == emoji) Modifier.border(2.dp, Navy, RoundedCornerShape(10.dp)) else Modifier)
-                                .clickable { emoji = choice },
-                            contentAlignment = Alignment.Center,
-                        ) { Text(choice, fontSize = 20.sp) }
-                    }
-                }
-                Box {
-                    OutlinedButton(onClick = { groupMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("In group: ${parent.emoji} ${parent.label}  ▾")
-                    }
-                    DropdownMenu(expanded = groupMenuOpen, onDismissRequest = { groupMenuOpen = false }) {
-                        groups.forEach { group ->
-                            DropdownMenuItem(
-                                text = { Text("${group.emoji}  ${group.label}".trim()) },
-                                onClick = {
-                                    parent = group
-                                    groupMenuOpen = false
-                                },
-                            )
-                        }
-                    }
-                }
-                if (onDelete != null) {
-                    if (confirmDelete) {
-                        Text("Its transactions will move to Other.", color = Rust)
-                        TextButton(onClick = onDelete) { Text("Yes, delete", color = Rust) }
-                    } else {
-                        TextButton(onClick = { confirmDelete = true }) { Text("Delete category", color = Rust) }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(label, emoji, parent) }, enabled = label.isNotBlank()) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-/** Create or edit one of the user's own groups. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun GroupEditorDialog(
-    initial: Category?,
-    onDismiss: () -> Unit,
-    onSave: (label: String, emoji: String, kind: Kind) -> Unit,
-    subcategoryCount: Int = 0,
-    onDelete: (() -> Unit)? = null,
-) {
-    var label by remember { mutableStateOf(initial?.label.orEmpty()) }
-    var emoji by remember { mutableStateOf(initial?.emoji ?: "📁") }
-    var kind by remember { mutableStateOf(initial?.kind ?: Kind.SPENDING) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    val kinds = listOf(
-        Kind.SPENDING to "Spending",
-        Kind.SAVING to "Saving & investing",
-        Kind.MOVEMENT to "Not counted",
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New group" else "Edit group") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    EmojiBadge(emoji, size = 48)
-                    OutlinedTextField(
-                        value = label,
-                        onValueChange = { label = it.take(30) },
-                        label = { Text("Group name") },
-                        singleLine = true,
-                    )
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    (listOf("📁", "🧒", "💼", "🏡", "🚗", "🐾", "🎉", "💍", "🧳", "🛠️", "🎸", "🌱") + EMOJI_CHOICES).distinct().forEach { choice ->
-                        Box(
-                            Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .then(if (choice == emoji) Modifier.border(2.dp, Navy, RoundedCornerShape(10.dp)) else Modifier)
-                                .clickable { emoji = choice },
-                            contentAlignment = Alignment.Center,
-                        ) { Text(choice, fontSize = 20.sp) }
-                    }
-                }
-                Text("Type", style = MaterialTheme.typography.labelLarge, color = Muted)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    kinds.forEach { (value, name) ->
-                        if (kind == value) {
-                            Button(onClick = {}) { Text(name) }
-                        } else {
-                            OutlinedButton(onClick = { kind = value }) { Text(name) }
-                        }
-                    }
-                }
-                Text(
-                    when (kind) {
-                        Kind.SPENDING -> "Counts in your spending totals."
-                        Kind.SAVING -> "Shown as saved, not spent."
-                        else -> "Never counted as spending (money just moving around)."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Muted,
-                )
-                if (onDelete != null) {
-                    if (confirmDelete) {
-                        Text(
-                            if (subcategoryCount > 0) "Its $subcategoryCount subcategories will move to Other." else "This group is empty.",
-                            color = Rust,
-                        )
-                        TextButton(onClick = onDelete) { Text("Yes, delete group", color = Rust) }
-                    } else {
-                        TextButton(onClick = { confirmDelete = true }) { Text("Delete group", color = Rust) }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(label, emoji, kind) }, enabled = label.isNotBlank()) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    ) { Text(emoji, fontSize = (size * 0.5f).sp) }
 }

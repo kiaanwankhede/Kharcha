@@ -1,0 +1,5 @@
+<resources>
+    <!-- Dark window behind the app while it starts, so there's no white flash in dark mode. -->
+    <color name="background">#0E1525</color>
+    <color name="ic_launcher_background">#13203A</color>
+</resources>

@@ -132,7 +132,7 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        message?.let { Panel(color = Navy) { Text(it, color = Paper) } }
+        message?.let { Panel(color = Accent) { Text(it, color = Paper) } }
 
         SectionLabel("Appearance")
         Panel {
@@ -173,7 +173,6 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
                 OutlinedButton(onClick = { openRoute("upcoming") }) { Text("Bills") }
                 OutlinedButton(onClick = { openRoute("accounts") }) { Text("Accounts") }
             }
-            OutlinedButton(onClick = { openRoute("unread") }) { Text("Messages we couldn’t read") }
         }
 
         SectionLabel("Payee names")
@@ -192,7 +191,7 @@ fun SettingsScreen(container: AppContainer, openCategories: () -> Unit, modifier
 
         SectionLabel("Tags")
         Panel {
-            Text("Rename, merge or delete your tags, or change their emoji.", color = Muted)
+            Text("Rename, merge or delete your tags.", color = Muted)
             Button(onClick = openCategories) { Text("Manage tags") }
         }
 

@@ -136,7 +136,7 @@ fun SplitDialog(t: Transaction, catalog: CategoryCatalog, onDismiss: () -> Unit,
                         )
                         Box(Modifier.weight(1f)) {
                             OutlinedButton(onClick = { menuFor = index }, modifier = Modifier.fillMaxWidth()) {
-                                Text("${categories[index].emoji} ${categories[index].label}", maxLines = 1)
+                                Text("${categories[index].emoji} ${categories[index].label}".trim(), maxLines = 1)
                             }
                             DropdownMenu(expanded = menuFor == index, onDismissRequest = { menuFor = null }) {
                                 CategoryMenuItems(catalog, filter = { it.countsAsSpend }) { option ->

@@ -58,6 +58,8 @@ object Deduplicator {
             vpa = existing.vpa ?: incoming.vpa,
             reference = existing.reference ?: incoming.reference,
             balancePaise = existing.balancePaise ?: incoming.balancePaise,
+            // Tags from either copy survive (say the notification brought "always tag Swiggy food").
+            tags = (existing.tags + incoming.tags).distinct(),
         )
     }
 }

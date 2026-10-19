@@ -67,6 +67,12 @@ private val DarkPalette = KharchaPalette(
 private val LocalPalette = staticCompositionLocalOf { LightPalette }
 
 val Navy: Color @Composable @ReadOnlyComposable get() = LocalPalette.current.ink
+
+/**
+ * Strong fill for headers, buttons and selected chips: dark ink in light mode, blue in dark mode, so
+ * it never turns into a white slab. Text on it uses [Paper].
+ */
+val Accent: Color @Composable @ReadOnlyComposable get() = LocalPalette.current.let { if (it == DarkPalette) it.blue else it.ink }
 val Paper: Color @Composable @ReadOnlyComposable get() = LocalPalette.current.paper
 val CardColor: Color @Composable @ReadOnlyComposable get() = LocalPalette.current.card
 val Sand: Color @Composable @ReadOnlyComposable get() = LocalPalette.current.sand
@@ -120,6 +126,7 @@ fun KharchaTheme(theme: String = "system", content: @Composable () -> Unit) {
             surfaceVariant = palette.sand,
             onSurfaceVariant = palette.muted,
             surfaceContainer = palette.sand,
+            surfaceContainerHigh = palette.card,
             outline = palette.line,
         )
     }

@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.kharcha.AppContainer
 import app.kharcha.core.CategoryCatalog
 import app.kharcha.capture.ScanProgress
+import app.kharcha.core.Category
 import app.kharcha.data.MessageState
 import app.kharcha.data.UnreadMessageEntity
 import kotlinx.coroutines.launch
@@ -47,7 +48,7 @@ private enum class MessageFilter(val label: String, val states: Set<String>?) {
     PAYMENTS("Payments", setOf(MessageState.PAYMENT, MessageState.ADDED, MessageState.BILL)),
     UNREAD("Couldn’t read", setOf(MessageState.UNREAD)),
     SKIPPED("Other", setOf(MessageState.SKIPPED)),
-    HIDDEN("Not money", setOf(MessageState.NOT_MONEY, MessageState.HIDDEN)),
+    HIDDEN("Not a payment", setOf(MessageState.NOT_MONEY, MessageState.HIDDEN)),
 }
 
 @Composable
@@ -57,8 +58,8 @@ private fun stateLabel(state: String): Pair<String, Color> = when (state) {
     MessageState.BILL -> "Card bill" to Blue
     MessageState.UNREAD -> "Couldn’t read" to Rust
     MessageState.SKIPPED -> "Not read as a payment" to Faint
-    MessageState.NOT_MONEY -> "Not money — you said" to Faint
-    MessageState.HIDDEN -> "Hidden by a pattern you taught" to Faint
+    MessageState.NOT_MONEY -> "Not a payment, you said" to Faint
+    MessageState.HIDDEN -> "Hidden (older version)" to Faint
     else -> state to Faint
 }
 
@@ -75,19 +76,18 @@ fun MessagesView(
 ) {
     val repository = container.repository
     val messages by repository.messages.collectAsStateWithLifecycle(initialValue = emptyList())
-    val rules by repository.learnedRules.collectAsStateWithLifecycle(initialValue = emptyList())
     val catalog by repository.catalog.collectAsStateWithLifecycle(initialValue = CategoryCatalog())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var filter by rememberSaveable { mutableStateOf(MessageFilter.ALL) }
     var query by rememberSaveable { mutableStateOf("") }
     var adding by remember { mutableStateOf<UnreadMessageEntity?>(null) }
-    var confirmPaymentRule by remember { mutableStateOf<Pair<UnreadMessageEntity, Int>?>(null) }
-    var showRules by remember { mutableStateOf(false) }
     var scan by remember { mutableStateOf<ScanProgress?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var askingDate by remember { mutableStateOf(false) }
-    val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (hasSmsPermission(context)) askingDate = true
+    }
 
     val shown = remember(messages, filter, query) {
         val q = query.trim().lowercase()
@@ -111,22 +111,11 @@ fun MessagesView(
     ) {
         item {
             Text(
-                "Every message from your banks, and what the app did with it. Personal messages and OTPs are never kept. " +
-                    "Mark anything that isn’t a payment. Only that message is affected.",
+                "Every SMS and what the app did with it (one-time codes are never kept). " +
+                    "Mark anything that isn’t a payment; only that message is affected.",
                 color = Muted,
                 style = MaterialTheme.typography.bodySmall,
             )
-        }
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${rules.size} learned pattern${if (rules.size == 1) "" else "s"}",
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Faint,
-                )
-                if (rules.isNotEmpty()) TextButton(onClick = { showRules = true }) { Text("Manage") }
-            }
         }
         item {
             OutlinedTextField(
@@ -187,13 +176,7 @@ fun MessagesView(
             MessageCard(
                 message = m,
                 onAddPayment = { adding = m },
-                onNotMoney = {
-                    if (m.state == MessageState.PAYMENT) {
-                        scope.launch { confirmPaymentRule = m to repository.previewNotMoney(m.id) }
-                    } else {
-                        notMoney(m)
-                    }
-                },
+                onNotMoney = { notMoney(m) },
                 onRestore = { scope.launch { repository.rereadMessage(m) } },
                 onOpenTransaction = m.transactionId?.let { id -> { onOpenTransaction(id) } },
                 onCopy = { copyToClipboard(context, m.body) },
@@ -206,58 +189,17 @@ fun MessagesView(
             message = message,
             catalog = catalog,
             onDismiss = { adding = null },
-            onSave = { amount, direction, payee, category ->
+            onSave = { amount, direction, payee, type, tags ->
                 adding = null
-                scope.launch { repository.addFromMessage(message, amount, direction, payee, category) }
-            },
-        )
-    }
-
-    confirmPaymentRule?.let { (message, similar) ->
-        AlertDialog(
-            onDismissRequest = { confirmPaymentRule = null },
-            title = { Text("Not money?") },
-            text = {
-                Text(
-                    "This message reads like a payment. The payment will be ignored, and future messages like it will be hidden too" +
-                        if (similar > 0) ", including $similar already here that you haven’t reviewed." else ".",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmPaymentRule = null
-                    notMoney(message)
-                }) { Text("Yes, not money") }
-            },
-            dismissButton = { TextButton(onClick = { confirmPaymentRule = null }) { Text("Cancel") } },
-        )
-    }
-
-    if (showRules) {
-        AlertDialog(
-            onDismissRequest = { showRules = false },
-            title = { Text("Learned patterns") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    rules.forEach { rule ->
-                        Column {
-                            Text(
-                                (if (rule.senderCode == "*") "Any bank" else rule.senderCode) +
-                                    if (rule.coversPayments) " · includes payment-like messages" else "",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Faint,
-                            )
-                            Text("“${rule.sample}”", style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { scope.launch { repository.deleteRule(rule.id) } }) {
-                                Text("Stop hiding messages like this", color = Rust)
-                            }
-                        }
-                    }
+                scope.launch {
+                    val added = repository.addFromMessage(message, amount, direction, payee, type, tags)
+                    onUndoable("Added as a payment") { repository.undoAddFromMessage(added) }
                 }
             },
-            confirmButton = { TextButton(onClick = { showRules = false }) { Text("Done") } },
+            onCreateTag = { label, _ -> repository.saveCategory(Category.forTag(label)) },
         )
     }
+
 }
 
 @Composable
@@ -281,11 +223,11 @@ private fun MessageCard(
             when (message.state) {
                 MessageState.PAYMENT, MessageState.ADDED, MessageState.BILL -> {
                     if (onOpenTransaction != null) TextButton(onClick = onOpenTransaction) { Text("Open payment") }
-                    if (message.state == MessageState.PAYMENT) TextButton(onClick = onNotMoney) { Text("Not money", color = Faint) }
+                    if (message.state == MessageState.PAYMENT) TextButton(onClick = onNotMoney) { Text("Not a payment", color = Faint) }
                 }
                 MessageState.UNREAD, MessageState.SKIPPED -> {
                     TextButton(onClick = onAddPayment) { Text("It’s a payment") }
-                    TextButton(onClick = onNotMoney) { Text("Not money", color = Faint) }
+                    TextButton(onClick = onNotMoney) { Text("Not a payment", color = Faint) }
                 }
                 MessageState.NOT_MONEY, MessageState.HIDDEN -> {
                     TextButton(onClick = onRestore) { Text("Show again") }

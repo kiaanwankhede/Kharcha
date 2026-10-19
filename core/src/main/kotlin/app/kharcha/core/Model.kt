@@ -89,7 +89,8 @@ data class Transaction(
         if (splits.isEmpty()) {
             listOf(this)
         } else {
-            splits.map { copy(amountPaise = it.amountPaise, category = it.category, note = it.note ?: note, splits = emptyList()) }
+            // Each part carries only its own tag, so a tag budget doesn't count the whole payment once per part.
+            splits.map { copy(amountPaise = it.amountPaise, category = it.category, note = it.note ?: note, splits = emptyList(), tags = listOfNotNull(it.category.tagName)) }
         }
 
     val isCashWithdrawal: Boolean get() = direction == Direction.DEBIT && category.id == Category.CASH.id

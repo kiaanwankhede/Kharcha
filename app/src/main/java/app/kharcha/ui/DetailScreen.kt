@@ -54,7 +54,6 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
     val flow = remember(id) { repository.transaction(id) }
     val t by flow.collectAsStateWithLifecycle(initialValue = null)
     val catalog by repository.catalog.collectAsStateWithLifecycle(initialValue = CategoryCatalog())
-    var creatingCategory by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
     // Only on by default for a known store; for a person or an unreadable payee ("Unknown") it would tag unrelated payments.
@@ -90,7 +89,7 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
         }
         if (txn.isSplit) {
             Panel(color = CoolTint) {
-                Text("Split across ${txn.splits.size} categories", fontWeight = FontWeight.Bold)
+                Text("Split into ${txn.splits.size} parts", fontWeight = FontWeight.Bold)
                 txn.splits.forEach { part ->
                     Row {
                         Text("${part.category.emoji}  ${part.category.label}".trim(), Modifier.weight(1f))
@@ -119,7 +118,11 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Same tags for every ${txn.merchant} payment", Modifier.weight(1f), color = Blue, fontWeight = FontWeight.SemiBold)
-                Switch(checked = rememberForMerchant, onCheckedChange = { rememberForMerchant = it })
+                Switch(checked = rememberForMerchant, onCheckedChange = { on ->
+                    rememberForMerchant = on
+                    // Turning it on applies this payment's tags to the payee's other payments right away.
+                    if (on) scope.launch { repository.setLabels(txn.id, txn.category.takeIf { c -> !c.countsAsSpend }, txn.tags, true) }
+                })
             }
             if (txn.direction == Direction.DEBIT) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -237,21 +240,6 @@ fun DetailScreen(container: AppContainer, id: Long, onBack: () -> Unit, onOpenMe
             )
         }
 
-        if (creatingCategory) {
-            CategoryEditorDialog(
-                initial = null,
-                onDismiss = { creatingCategory = false },
-                defaultGroup = catalog.groupOf(txn.category),
-                groups = catalog.groups,
-                onSave = { label, emoji, parent ->
-                    creatingCategory = false
-                    scope.launch {
-                        val created = repository.saveCategory(Category.custom(label, emoji, parent))
-                        repository.setCategory(txn.id, created, rememberForMerchant)
-                    }
-                },
-            )
-        }
     }
 }
 

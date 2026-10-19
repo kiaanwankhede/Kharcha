@@ -1,5 +1,5 @@
 <resources>
-    <string name="deck_widget_description">Swipe through what needs review, safe to spend, today, this month, budgets and upcoming bills</string>
+    <string name="deck_widget_description">What needs review, safe to spend, today, this month, budgets and upcoming bills</string>
     <string name="cash_tile_label">Add cash</string>
 
     <color name="widget_text">#EEF1F6</color>

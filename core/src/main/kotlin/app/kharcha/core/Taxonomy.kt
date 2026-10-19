@@ -27,6 +27,17 @@ data class Category(
     /** One of the user's tags, standing in as a category so totals and budgets work per tag. */
     val isTag: Boolean get() = id.startsWith(TAG_PREFIX)
 
+    /**
+     * Which way money moves for a built-in type: salary and other income only come in, ATM cash or
+     * lending only go out. Null means either way (tags, transfers, Untagged).
+     */
+    val onlyFor: Direction?
+        get() = when {
+            id == TRANSFER.id || isTag || countsAsSpend -> null
+            parentId == G_INCOME.id -> Direction.CREDIT
+            else -> Direction.DEBIT
+        }
+
     /** The tag name for a tag category ("food"), else null. */
     val tagName: String? get() = if (isTag) id.removePrefix(TAG_PREFIX) else null
 

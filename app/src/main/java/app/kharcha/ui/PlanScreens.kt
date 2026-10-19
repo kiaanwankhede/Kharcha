@@ -170,7 +170,7 @@ private fun BudgetDialog(
     onSave: (Budget) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
-    var kind by remember { mutableStateOf(initial?.kind ?: BudgetKind.GROUP) }
+    var kind by remember { mutableStateOf(initial?.kind?.takeIf { it != BudgetKind.GROUP } ?: BudgetKind.CATEGORY) }
     var targetId by remember { mutableStateOf(initial?.targetId) }
     var label by remember { mutableStateOf(initial?.label.orEmpty()) }
     var emoji by remember { mutableStateOf(initial?.emoji ?: "🎯") }
@@ -201,7 +201,7 @@ private fun BudgetDialog(
                     OutlinedButton(
                         onClick = { if (kind == BudgetKind.CATEGORY) sheetOpen = true else menuOpen = true },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (targetId == null) "Choose…" else "$emoji  $label  ▾") }
+                    ) { Text(if (targetId == null) "Choose…" else "$emoji  $label".trim() + "  ▾") }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         if (kind == BudgetKind.GROUP) {
                             catalog.groups.filter { it.kind == Kind.SPENDING }.forEach { group ->

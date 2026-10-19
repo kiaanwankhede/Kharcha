@@ -16,12 +16,13 @@ object WhatsNew {
     const val RELEASES_URL = "https://github.com/kiaanwankhede/Kharcha/releases/latest"
 
     val ITEMS = listOf(
+        "🧹 Clean-up: Undo now fully reverses a review, re-reading your inbox no longer doubles messages, \"It's a payment\" takes tags (and money in no longer lowers spending), Payments / Messages filters and \"Not payments: all shown\", and readable colours in dark mode.",
         "✋ \"Not a payment\" only affects the message you mark. Messages hidden by earlier builds are back in Review.",
         "#️⃣ Tags are plain words: no icons.",
         "📨 Every message from your inbox (never one-time codes) is in Review now, next to the payments: tap Not a payment or It's a payment.",
         "👆 No more swiping on review cards: use the buttons.",
         "🏷️ Tags instead of categories: give a payment as many as you like. Type one: if you have it, it's used; if it's close, it's suggested; if it's new, you're asked first. The first tag counts in your totals; every tag has its own total.",
-        "📱 Home-screen widget: swipe through review, safe to spend, today, month, budgets and bills. Accept payments right from it.",
+        "📱 Home-screen widget: what needs review, safe to spend, today, month, budgets and bills.",
         "＋ Add cash from Quick Settings: pull down, tap, type.",
         "🤝 Lent & borrowed: see who owes you, ask with a UPI link, pay back in one tap.",
         "🏖️ Trips & tags: payments during a trip get tagged by themselves.",
